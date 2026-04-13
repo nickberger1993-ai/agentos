@@ -4,6 +4,7 @@
 
 [![Live Demo](https://img.shields.io/badge/demo-live-blue)](https://nickberger1993-ai.github.io/agentos/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
+[![Price: Free](https://img.shields.io/badge/price-free-brightgreen)](https://nickberger1993-ai.github.io/agentos/setup.html)
 
 ## The Problem
 
@@ -16,6 +17,8 @@ AgentOS gives your AI a persistent brain using Google Docs as external memory. O
 **Your AI reads the doc → understands state → executes task → updates memory → moves to next task.**
 
 Session ends? Memory stays. New session? Picks up exactly where it left off.
+
+**100% free. No credit card. No limits. Open source.**
 
 ## How It Works
 
@@ -66,17 +69,17 @@ AgentOS is a BYO-LLM framework. You provide the brain, we provide the operating 
 - **Google Docs + Sheets** — Uses free tools you already have
 - **Works Everywhere** — Chat, browser, desktop, API
 - **4-Part Architecture** — Simple, structured, universal
-- **Open Source** — MIT licensed, free forever
+- **100% Free** — No tiers, no limits, no upsell. MIT licensed.
 
 ## Project Structure
 
-```
+\`\`\`
 agentos/
 ├── index.html      # Landing page
 ├── setup.html      # 4-step setup wizard
 ├── README.md       # This file
 └── LICENSE          # MIT License
-```
+\`\`\`
 
 ## Roadmap
 
@@ -84,9 +87,8 @@ agentos/
 - [x] Setup wizard (4-step form)
 - [x] Starter prompt generator
 - [x] AgentOS document template generator
-- [ ] Google OAuth integration
+- [ ] Google OAuth integration (auto-connect docs)
 - [ ] Auto-write to Google Docs via API
-- [ ] Premium templates (Marketing, Sales, Developer agents)
 - [ ] Google Sheets integration for structured data
 - [ ] Dashboard for managing multiple agents
 
@@ -111,4 +113,4 @@ MIT License. See [LICENSE](LICENSE) for details.
 
 ---
 
-Built with persistence in mind.
+Built with persistence in mind. Free forever.
