@@ -9,255 +9,129 @@
 :root{--bg:#0a0a0a;--surface:#111;--border:#222;--text:#fafafa;--muted:#888;--accent:#3b82f6;--green:#22c55e;--red:#ef4444}
 body{font-family:system-ui,sans-serif;background:var(--bg);color:var(--text);line-height:1.6;min-height:100vh}
 a{color:var(--accent);text-decoration:none}
-nav{display:flex;justify-content:space-between;align-items:center;padding:20px 40px;border-bottom:1px solid var(--border);background:rgba(10,10,10,.95);backdrop-filter:blur(10px)}
+nav{display:flex;justify-content:space-between;align-items:center;padding:20px 40px;border-bottom:1px solid var(--border)}
 .logo{font-size:20px;font-weight:700}
 .logo b{color:var(--accent)}
 .nav-back{color:var(--muted);font-size:14px;display:flex;align-items:center;gap:8px}
-.wrap{max-width:720px;margin:0 auto;padding:60px 24px 120px}
-.progress{display:flex;gap:8px;margin-bottom:48px}
-.progress-step{flex:1;height:4px;background:var(--border);border-radius:4px;transition:background .3s}
-.progress-step.active{background:var(--accent)}
-.progress-step.done{background:var(--green)}
-.step-label{display:flex;justify-content:space-between;margin-bottom:12px;font-size:13px;color:var(--muted)}
-.step-label .current{color:var(--accent);font-weight:600}
-h2{font-size:36px;font-weight:700;letter-spacing:-1px;margin-bottom:8px}
-.step-desc{color:var(--muted);font-size:16px;margin-bottom:40px}
-.form-group{margin-bottom:28px}
-.form-group label{display:block;font-size:14px;font-weight:600;margin-bottom:8px}
-.form-group .hint{font-size:13px;color:var(--muted);margin-bottom:8px}
-input[type="text"],input[type="url"],textarea,select{width:100%;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px 16px;color:var(--text);font-size:15px;font-family:inherit;outline:none;transition:border-color .2s}
-input:focus,textarea:focus,select:focus{border-color:var(--accent)}
-textarea{resize:vertical;min-height:100px}
-select{cursor:pointer;appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='%23888' viewBox='0 0 16 16'%3E%3Cpath d='M8 11L3 6h10l-5 5z'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 16px center}
-select option{background:var(--surface);color:var(--text)}
-.tag-container{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
-.tag{display:inline-flex;align-items:center;gap:6px;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:6px 12px;font-size:13px;cursor:pointer;transition:all .2s}
-.tag:hover{border-color:var(--accent)}
-.tag.selected{border-color:var(--accent);background:rgba(59,130,246,.1);color:var(--accent)}
-.task-list{display:flex;flex-direction:column;gap:8px}
-.task-item{display:flex;gap:8px;align-items:center}
-.task-item input{flex:1}
-.task-item button{background:transparent;border:1px solid var(--border);color:var(--muted);width:36px;height:36px;border-radius:8px;cursor:pointer;font-size:16px;display:flex;align-items:center;justify-content:center}
-.task-item button:hover{border-color:var(--red);color:var(--red)}
-.add-task{background:transparent;border:1px dashed var(--border);color:var(--muted);padding:10px;border-radius:10px;width:100%;cursor:pointer;font-size:14px;margin-top:8px}
-.add-task:hover{border-color:var(--accent);color:var(--accent)}
-.btn-row{display:flex;gap:16px;margin-top:48px}
-.btn{padding:14px 32px;border-radius:10px;font-size:16px;font-weight:600;cursor:pointer;border:none;transition:all .2s}
-.btn-primary{background:var(--accent);color:#fff;flex:1}
-.btn-primary:hover{opacity:.9}
-.btn-secondary{background:transparent;border:1px solid var(--border);color:var(--text)}
-.btn-secondary:hover{border-color:var(--muted)}
-.btn:disabled{opacity:.4;cursor:not-allowed}
-.google-btn{display:flex;align-items:center;justify-content:center;gap:12px;width:100%;padding:14px;background:#fff;color:#333;border:1px solid #ddd;border-radius:10px;font-size:15px;font-weight:600;cursor:pointer;margin-bottom:16px;transition:all .2s}
-.google-btn:hover{background:#f5f5f5;border-color:#bbb}
+.wrap{max-width:640px;margin:0 auto;padding:60px 24px 120px}
+h1{font-size:42px;font-weight:700;letter-spacing:-1px;margin-bottom:8px;line-height:1.1}
+.subtitle{color:var(--muted);font-size:18px;margin-bottom:48px}
+.section{margin-bottom:40px}
+.section-label{font-size:13px;font-weight:600;color:var(--accent);text-transform:uppercase;letter-spacing:1px;margin-bottom:16px}
+textarea{width:100%;background:var(--surface);border:1px solid var(--border);color:var(--text);padding:16px;border-radius:12px;font-size:15px;font-family:inherit;resize:vertical;min-height:120px;line-height:1.6;transition:border .2s}
+textarea:focus{outline:none;border-color:var(--accent)}
+textarea::placeholder{color:#555}
+.example{color:var(--muted);font-size:13px;margin-top:8px;font-style:italic}
+.google-section{margin-top:40px;padding:32px;background:var(--surface);border-radius:16px;border:1px solid var(--border)}
+.google-btn{display:flex;align-items:center;justify-content:center;gap:12px;width:100%;padding:14px;background:#fff;color:#333;border:none;border-radius:10px;font-size:15px;font-weight:600;cursor:pointer;transition:all .2s}
+.google-btn:hover{background:#f0f0f0;transform:translateY(-1px)}
 .google-btn svg{width:20px;height:20px}
-.connected-badge{display:flex;align-items:center;gap:10px;background:rgba(34,197,94,.1);border:1px solid rgba(34,197,94,.3);border-radius:10px;padding:14px 16px;margin-bottom:16px}
-.connected-badge .dot{width:10px;height:10px;background:var(--green);border-radius:50%}
-.connected-badge .info{font-size:14px}
-.connected-badge .email{color:var(--green);font-weight:600}
+.connected-badge{display:flex;align-items:center;gap:10px;padding:14px 20px;background:rgba(34,197,94,.1);border:1px solid rgba(34,197,94,.3);border-radius:10px;color:var(--green);font-weight:500}
+.connected-badge svg{width:20px;height:20px;flex-shrink:0}
 .or-divider{display:flex;align-items:center;gap:16px;margin:20px 0;color:var(--muted);font-size:13px}
-.or-divider::before,.or-divider::after{content:"";flex:1;height:1px;background:var(--border)}
-.review-section{background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:32px;margin-bottom:24px}
-.review-section h3{font-size:18px;font-weight:600;margin-bottom:16px;display:flex;align-items:center;gap:10px}
-.review-section h3 .ico{font-size:20px}
-.review-item{display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--border);font-size:14px}
-.review-item:last-child{border-bottom:none}
-.review-item .label{color:var(--muted)}
-.review-item .value{font-weight:500;text-align:right;max-width:60%}
-.task-review{padding:8px 0;font-size:14px;display:flex;align-items:center;gap:8px}
-.task-review::before{content:"\25CB";color:var(--accent)}
-.prompt-output{background:var(--bg);border:1px solid var(--border);border-radius:12px;padding:24px;margin-top:32px;position:relative}
-.prompt-output pre{font-family:'SF Mono',Monaco,monospace;font-size:13px;white-space:pre-wrap;word-break:break-word;color:var(--muted);line-height:1.7;max-height:400px;overflow-y:auto}
-.copy-btn{position:absolute;top:12px;right:12px;background:var(--accent);color:#fff;border:none;padding:8px 16px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:6px}
-.copy-btn:hover{opacity:.9}
-.success-msg{text-align:center;padding:40px 0}
-.success-msg .check{font-size:64px;margin-bottom:24px}
-.success-msg h2{margin-bottom:12px}
-.success-msg p{color:var(--muted);max-width:480px;margin:0 auto 32px}
-.glow{animation:glow 2s ease-in-out infinite alternate}
-@keyframes glow{from{box-shadow:0 0 20px rgba(59,130,246,.2)}to{box-shadow:0 0 40px rgba(59,130,246,.4)}}
-.hidden{display:none}
-.writing-status{background:var(--surface);border:1px solid var(--accent);border-radius:12px;padding:20px;margin-top:24px;text-align:center}
-.writing-status .spinner{display:inline-block;width:20px;height:20px;border:2px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .8s linear infinite;margin-right:8px;vertical-align:middle}
+.or-divider::before,.or-divider::after{content:'';flex:1;height:1px;background:var(--border)}
+.manual-input{width:100%;background:var(--surface);border:1px solid var(--border);color:var(--text);padding:14px 16px;border-radius:10px;font-size:14px}
+.manual-input:focus{outline:none;border-color:var(--accent)}
+.manual-input::placeholder{color:#555}
+.generate-btn{width:100%;padding:18px;background:var(--accent);color:#fff;border:none;border-radius:12px;font-size:17px;font-weight:700;cursor:pointer;transition:all .2s;margin-top:40px;letter-spacing:-0.3px}
+.generate-btn:hover:not(:disabled){background:#2563eb;transform:translateY(-1px)}
+.generate-btn:disabled{opacity:.4;cursor:not-allowed}
+.output-section{display:none;margin-top:48px;animation:fadeIn .4s}
+@keyframes fadeIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
+.success-card{background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:32px;margin-bottom:24px}
+.success-header{display:flex;align-items:center;gap:12px;margin-bottom:16px}
+.success-header h2{font-size:24px;font-weight:700}
+.success-desc{color:var(--muted);font-size:14px;line-height:1.6;margin-bottom:24px}
+.success-desc a{color:var(--green)}
+.output-block{position:relative;background:#0d1117;border:1px solid var(--border);border-radius:12px;padding:20px;margin-bottom:16px}
+.output-block pre{white-space:pre-wrap;font-size:13px;line-height:1.5;color:#c9d1d9;font-family:'SF Mono',Consolas,monospace;max-height:300px;overflow-y:auto}
+.copy-btn{position:absolute;top:12px;right:12px;background:var(--border);color:var(--text);border:none;padding:8px 14px;border-radius:8px;font-size:12px;cursor:pointer;font-weight:600;transition:all .2s}
+.copy-btn:hover{background:var(--accent)}
+.output-label{font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:8px}
+.writing-status{display:none;text-align:center;padding:24px;color:var(--accent)}
+.writing-status .spinner{display:inline-block;width:20px;height:20px;border:2px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .8s linear infinite;margin-right:10px;vertical-align:middle}
 @keyframes spin{to{transform:rotate(360deg)}}
-@media(max-width:768px){.wrap{padding:32px 16px 80px}h2{font-size:28px}nav{padding:16px 20px}.btn-row{flex-direction:column}.review-item{flex-direction:column;gap:4px}.review-item .value{text-align:left;max-width:100%}}
+.template-section{margin-top:16px}
+.back-link{display:inline-block;margin-top:32px;color:var(--muted);font-size:14px}
+.hidden{display:none!important}
+.tip{background:rgba(59,130,246,.08);border:1px solid rgba(59,130,246,.2);border-radius:10px;padding:16px;margin-top:16px;font-size:13px;color:var(--muted);line-height:1.5}
+.tip b{color:var(--text)}
 </style>
 </head>
 <body>
 <nav>
-<a href="index.html" class="nav-back">&#8592; Back to AgentOS</a>
+<a href="index.html" class="nav-back">&larr; Back to AgentOS</a>
 <div class="logo">Agent<b>OS</b></div>
 </nav>
 <div class="wrap">
-<div class="step-label"><span class="current" id="stepLabel">Step 1 of 4</span><span id="stepTitle">Connect Your Doc</span></div>
-<div class="progress"><div class="progress-step active" id="p1"></div><div class="progress-step" id="p2"></div><div class="progress-step" id="p3"></div><div class="progress-step" id="p4"></div></div>
+<h1>Describe your agent</h1>
+<p class="subtitle">Tell us what you need. We'll generate the full memory doc, tasks, and starter prompt.</p>
 
-<!-- STEP 1: Connect Doc -->
-<div id="step1" class="step">
-<h2>Connect Your Google Doc</h2>
-<p class="step-desc">This document becomes your agent's brain. It will store memory, tasks, and identity.</p>
+<div class="section">
+<div class="section-label">Your Idea</div>
+<textarea id="ideaInput" placeholder="Example: I need an AI agent to manage my e-commerce store. It should handle customer support emails, track inventory levels, update product listings, and create weekly sales reports. The tone should be professional but friendly." oninput="validateForm()"></textarea>
+<p class="example">Just describe what you want your agent to do. Be as detailed or brief as you want &mdash; we'll figure out the rest.</p>
+</div>
+
+<div class="google-section">
+<div class="section-label" style="margin-top:0">Connect Google Docs</div>
+<p style="color:var(--muted);font-size:14px;margin-bottom:20px">We'll create a new Google Doc and write your agent's memory template directly into it.</p>
 
 <div id="googleConnected" class="connected-badge hidden">
-<div class="dot"></div>
-<div class="info">Connected as <span class="email" id="connectedEmail">-</span></div>
+<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+<span>Connected as <b id="connectedEmail"></b></span>
 </div>
 
 <div id="googleConnectSection">
 <button class="google-btn" onclick="connectGoogle()">
-<svg viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>
+<svg viewBox="0 0 24 24"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.27-4.74 3.27-8.1z" fill="#4285F4"/><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/><path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/><path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/></svg>
 Connect with Google
 </button>
-</div>
 
-<div class="or-divider">or connect manually</div>
-
-<div class="form-group">
-<label>Google Doc URL</label>
-<div class="hint">Paste the full URL of your Google Doc (must have edit access)</div>
-<input type="url" id="docUrl" placeholder="https://docs.google.com/document/d/..." oninput="validateStep1()">
-</div>
-
-<div class="btn-row">
-<button class="btn btn-primary" id="btn1" onclick="goStep(2)">Continue &#8594;</button>
+<div class="or-divider">or paste a Google Doc URL</div>
+<input type="url" id="docUrl" class="manual-input" placeholder="https://docs.google.com/document/d/..." oninput="validateForm()">
 </div>
 </div>
 
-<!-- STEP 2: Agent Identity (SOUL) -->
-<div id="step2" class="step hidden">
-<h2>Define Your Agent's Identity</h2>
-<p class="step-desc">This is the SOUL section. It tells your AI who it is, what it does, and how it behaves.</p>
-<div class="form-group">
-<label>Project / Business Name</label>
-<input type="text" id="projectName" placeholder="e.g. My SaaS Startup, Marketing Agency..." oninput="validateStep2()">
-</div>
-<div class="form-group">
-<label>What does your agent do?</label>
-<div class="hint">Describe the main role in 1-2 sentences</div>
-<textarea id="agentRole" placeholder="e.g. Manages content calendar, writes blog posts, schedules social media..." oninput="validateStep2()"></textarea>
-</div>
-<div class="form-group">
-<label>Agent Personality / Tone</label>
-<div class="tag-container">
-<div class="tag selected" data-tone="professional" onclick="selectTone(this)">Professional</div>
-<div class="tag" data-tone="casual" onclick="selectTone(this)">Casual</div>
-<div class="tag" data-tone="technical" onclick="selectTone(this)">Technical</div>
-<div class="tag" data-tone="creative" onclick="selectTone(this)">Creative</div>
-<div class="tag" data-tone="concise" onclick="selectTone(this)">Concise</div>
-</div>
-</div>
-<div class="form-group">
-<label>Key Rules (optional)</label>
-<div class="hint">Any rules your agent should always follow</div>
-<textarea id="agentRules" placeholder="e.g. Always ask before deleting. Use metric system. Never share passwords..." rows="3"></textarea>
-</div>
-<div class="form-group">
-<label>Which AI will you use?</label>
-<select id="aiChoice">
-<option value="claude">Claude (Anthropic)</option>
-<option value="chatgpt">ChatGPT (OpenAI)</option>
-<option value="gemini">Gemini (Google)</option>
-<option value="llama">LLaMA / Open Source</option>
-<option value="other">Other</option>
-</select>
-</div>
-<div class="btn-row">
-<button class="btn btn-secondary" onclick="goStep(1)">&#8592; Back</button>
-<button class="btn btn-primary" id="btn2" onclick="goStep(3)">Continue &#8594;</button>
-</div>
+<div class="tip">
+<b>How it works:</b> You describe your idea &rarr; we generate the full AgentOS template (SOUL, TODO, DONE, LIVE LINKS, FEED RULES) &rarr; write it to your Google Doc &rarr; give you a starter prompt to paste into your AI. One click, done.
 </div>
 
-<!-- STEP 3: First Tasks (TODO) -->
-<div id="step3" class="step hidden">
-<h2>Add Your First Tasks</h2>
-<p class="step-desc">These go in the TODO section. Your agent will start executing from the top.</p>
-<div class="form-group">
-<label>Tasks for your agent</label>
-<div class="hint">Add at least one task. Your agent will work through these in order.</div>
-<div class="task-list" id="taskList">
-<div class="task-item"><input type="text" placeholder="e.g. Research top 10 competitors" oninput="validateStep3()"><button onclick="removeTask(this)">&#10005;</button></div>
-<div class="task-item"><input type="text" placeholder="e.g. Draft homepage copy" oninput="validateStep3()"><button onclick="removeTask(this)">&#10005;</button></div>
-<div class="task-item"><input type="text" placeholder="e.g. Create content calendar" oninput="validateStep3()"><button onclick="removeTask(this)">&#10005;</button></div>
-</div>
-<button class="add-task" onclick="addTask()">+ Add another task</button>
-</div>
-<div class="form-group">
-<label>Important Links (optional)</label>
-<div class="hint">Add links your agent should know about (website, docs, tools, etc.)</div>
-<div class="task-list" id="linkList">
-<div class="task-item"><input type="url" placeholder="https://your-website.com"><button onclick="removeTask(this)">&#10005;</button></div>
-</div>
-<button class="add-task" onclick="addLink()">+ Add another link</button>
-</div>
-<div class="btn-row">
-<button class="btn btn-secondary" onclick="goStep(2)">&#8592; Back</button>
-<button class="btn btn-primary" id="btn3" onclick="goStep(4)">Review &amp; Generate &#8594;</button>
-</div>
+<button class="generate-btn" id="generateBtn" onclick="generate()" disabled>
+&#9889; Generate My Agent
+</button>
+
+<div class="writing-status" id="writingStatus">
+<span class="spinner"></span> Creating your agent's memory doc...
 </div>
 
-<!-- STEP 4: Review & Generate -->
-<div id="step4" class="step hidden">
-<h2>Review Your Agent</h2>
-<p class="step-desc">Everything looks good? Generate your starter prompt and AgentOS template.</p>
-
-<div class="review-section">
-<h3><span class="ico">&#128196;</span> Document</h3>
-<div class="review-item"><span class="label">Connection</span><span class="value" id="revDoc">-</span></div>
-</div>
-
-<div class="review-section">
-<h3><span class="ico">&#129504;</span> Agent Identity (SOUL)</h3>
-<div class="review-item"><span class="label">Project</span><span class="value" id="revProject">-</span></div>
-<div class="review-item"><span class="label">Role</span><span class="value" id="revRole">-</span></div>
-<div class="review-item"><span class="label">Tone</span><span class="value" id="revTone">-</span></div>
-<div class="review-item"><span class="label">AI</span><span class="value" id="revAI">-</span></div>
-<div class="review-item"><span class="label">Rules</span><span class="value" id="revRules">-</span></div>
-</div>
-
-<div class="review-section">
-<h3><span class="ico">&#9889;</span> Tasks (TODO)</h3>
-<div id="revTasks"></div>
-</div>
-
-<div class="review-section">
-<h3><span class="ico">&#128279;</span> Links</h3>
-<div id="revLinks"></div>
-</div>
-
-<div class="btn-row">
-<button class="btn btn-secondary" onclick="goStep(3)">&#8592; Back</button>
-<button class="btn btn-primary glow" id="generateBtn" onclick="generate()">&#9889; Generate Agent &#9889;</button>
-</div>
-
-<div id="writingStatus" class="writing-status hidden">
-<span class="spinner"></span> Writing template to your Google Doc...
-</div>
-
-<div id="outputSection" class="hidden" style="margin-top:48px">
-<div class="success-msg">
-<div class="check">&#9889;</div>
+<div class="output-section" id="outputSection">
+<div class="success-card">
+<div class="success-header">
+<span style="font-size:28px">&#9889;</span>
 <h2 id="successTitle">Your Agent is Ready!</h2>
-<p id="successDesc">Copy the starter prompt below and paste it into your first session with your AI. Your agent will initialize with full memory.</p>
 </div>
+<p class="success-desc" id="successDesc">Copy the starter prompt below and paste it into your first chat with your AI. Your agent will boot up with full memory.</p>
 
-<h3 style="margin-bottom:12px;font-size:16px">Starter Prompt</h3>
-<div class="prompt-output">
+<div>
+<div class="output-label">Starter Prompt</div>
+<div class="output-block">
 <button class="copy-btn" onclick="copyPrompt()">&#128203; Copy</button>
 <pre id="promptOutput"></pre>
 </div>
+</div>
 
-<div id="templateSection">
-<h3 style="margin:32px 0 12px;font-size:16px">AgentOS Document Template</h3>
-<div class="prompt-output">
-<button class="copy-btn" onclick="copyTemplate()">&#128203; Copy Template</button>
+<div class="template-section" id="templateSection">
+<div class="output-label">AgentOS Template</div>
+<div class="output-block">
+<button class="copy-btn" onclick="copyTemplate()">&#128203; Copy</button>
 <pre id="templateOutput"></pre>
 </div>
+<p style="color:var(--muted);font-size:13px;margin-top:8px" id="finalInstruction">Paste the template into your Google Doc, then use the starter prompt with your AI.</p>
+</div>
 </div>
 
-<div style="text-align:center;margin-top:40px">
-<p id="finalInstruction" style="color:var(--muted);font-size:14px;margin-bottom:16px">Paste the template into your Google Doc, then use the starter prompt with your AI.</p>
-<a href="index.html" class="btn btn-secondary" style="display:inline-block;text-decoration:none">&#8592; Back to AgentOS</a>
-</div>
-</div>
+<a href="index.html" class="back-link">&larr; Back to AgentOS</a>
 </div>
 </div>
 
@@ -265,9 +139,6 @@ Connect with Google
 var CLIENT_ID = '930312309217-9tgvu1i7o3hrogrmnooplbpgminq54m9.apps.googleusercontent.com';
 var REDIRECT_URI = 'https://nickberger1993-ai.github.io/agentos/callback.html';
 var SCOPES = 'https://www.googleapis.com/auth/documents https://www.googleapis.com/auth/drive.file';
-
-var currentStep = 1;
-var selectedTone = 'professional';
 var googleConnected = false;
 var accessToken = null;
 
@@ -281,11 +152,13 @@ var accessToken = null;
     document.getElementById('googleConnected').classList.remove('hidden');
     document.getElementById('connectedEmail').textContent = email || 'Google User';
     document.getElementById('googleConnectSection').classList.add('hidden');
-    validateStep1();
+    validateForm();
   }
 })();
 
 function connectGoogle() {
+  // Save the idea text before redirecting
+  sessionStorage.setItem('agentos_idea', document.getElementById('ideaInput').value);
   var authUrl = 'https://accounts.google.com/o/oauth2/v2/auth'
     + '?client_id=' + encodeURIComponent(CLIENT_ID)
     + '&redirect_uri=' + encodeURIComponent(REDIRECT_URI)
@@ -296,205 +169,223 @@ function connectGoogle() {
   window.location.href = authUrl;
 }
 
-function selectTone(el) {
-  document.querySelectorAll('[data-tone]').forEach(function(t) { t.classList.remove('selected'); });
-  el.classList.add('selected');
-  selectedTone = el.dataset.tone;
-}
-
-function validateStep1() {
-  var btn = document.getElementById('btn1');
-  if (googleConnected) { btn.disabled = false; return; }
-  var url = document.getElementById('docUrl').value.trim();
-  btn.disabled = !url.includes('docs.google.com');
-}
-
-function validateStep2() {
-  var btn = document.getElementById('btn2');
-  var name = document.getElementById('projectName').value.trim();
-  var role = document.getElementById('agentRole').value.trim();
-  btn.disabled = !(name && role);
-}
-
-function validateStep3() {
-  var btn = document.getElementById('btn3');
-  var tasks = document.querySelectorAll('#taskList input');
-  var hasTask = false;
-  tasks.forEach(function(t) { if (t.value.trim()) hasTask = true; });
-  btn.disabled = !hasTask;
-}
-
-function addTask() {
-  var list = document.getElementById('taskList');
-  var div = document.createElement('div');
-  div.className = 'task-item';
-  div.innerHTML = '<input type="text" placeholder="Enter a task..." oninput="validateStep3()"><button onclick="removeTask(this)">\u2715</button>';
-  list.appendChild(div);
-}
-
-function addLink() {
-  var list = document.getElementById('linkList');
-  var div = document.createElement('div');
-  div.className = 'task-item';
-  div.innerHTML = '<input type="url" placeholder="https://..."><button onclick="removeTask(this)">\u2715</button>';
-  list.appendChild(div);
-}
-
-function removeTask(btn) {
-  var list = btn.parentElement.parentElement;
-  if (list.children.length > 1) btn.parentElement.remove();
-}
-
-function goStep(n) {
-  document.getElementById('step' + currentStep).classList.add('hidden');
-  document.getElementById('step' + n).classList.remove('hidden');
-  for (var i = 1; i <= 4; i++) {
-    var p = document.getElementById('p' + i);
-    p.classList.remove('active', 'done');
-    if (i < n) p.classList.add('done');
-    if (i === n) p.classList.add('active');
+// Restore idea text after OAuth redirect
+(function() {
+  var saved = sessionStorage.getItem('agentos_idea');
+  if (saved) {
+    document.getElementById('ideaInput').value = saved;
+    validateForm();
   }
-  var titles = ['Connect Your Doc', 'Agent Identity', 'First Tasks', 'Review & Generate'];
-  document.getElementById('stepLabel').textContent = 'Step ' + n + ' of 4';
-  document.getElementById('stepTitle').textContent = titles[n - 1];
-  currentStep = n;
-  if (n === 4) populateReview();
-  window.scrollTo(0, 0);
+})();
+
+function validateForm() {
+  var btn = document.getElementById('generateBtn');
+  var idea = document.getElementById('ideaInput').value.trim();
+  var hasDoc = googleConnected || document.getElementById('docUrl').value.includes('docs.google.com');
+  btn.disabled = !(idea.length > 10 && (hasDoc || googleConnected));
+  // Also enable if they have an idea but no doc (we'll show manual template)
+  if (idea.length > 10) btn.disabled = false;
 }
 
-function populateReview() {
-  var docText = googleConnected ? 'Google connected (' + (sessionStorage.getItem('google_user_email') || '') + ')' : document.getElementById('docUrl').value.trim();
-  if (!docText) docText = 'Manual (template will be copied)';
-  document.getElementById('revDoc').textContent = docText;
-  document.getElementById('revProject').textContent = document.getElementById('projectName').value.trim();
-  document.getElementById('revRole').textContent = document.getElementById('agentRole').value.trim();
-  document.getElementById('revTone').textContent = selectedTone.charAt(0).toUpperCase() + selectedTone.slice(1);
-  document.getElementById('revAI').textContent = document.getElementById('aiChoice').options[document.getElementById('aiChoice').selectedIndex].text;
-  document.getElementById('revRules').textContent = document.getElementById('agentRules').value.trim() || 'None set';
-  var tasksDiv = document.getElementById('revTasks');
-  tasksDiv.innerHTML = '';
-  document.querySelectorAll('#taskList input').forEach(function(t) {
-    if (t.value.trim()) tasksDiv.innerHTML += '<div class="task-review">' + t.value.trim() + '</div>';
+function parseIdea(text) {
+  // Extract meaningful info from the free-text idea
+  var lines = text.trim();
+  
+  // Try to figure out a project name (first sentence or first ~5 words)
+  var firstSentence = lines.split(/[.!\n]/)[0].trim();
+  var project = firstSentence.length > 60 ? firstSentence.substring(0, 60) + '...' : firstSentence;
+  
+  // The whole thing becomes the role
+  var role = lines;
+  
+  // Try to extract tasks - look for action words
+  var tasks = [];
+  var taskPatterns = lines.split(/[.,;\n]+/);
+  taskPatterns.forEach(function(chunk) {
+    chunk = chunk.trim();
+    if (chunk.length > 5 && chunk.length < 200) {
+      // Check for action-like words
+      var actionWords = ['manage','handle','track','create','build','write','update','monitor','send','check','review','analyze','generate','schedule','organize','respond','follow','research','post','plan','develop','maintain','support','automate','find','set up','optimize','report'];
+      var lower = chunk.toLowerCase();
+      actionWords.forEach(function(w) {
+        if (lower.indexOf(w) > -1 && tasks.indexOf(chunk) === -1) {
+          tasks.push(chunk.charAt(0).toUpperCase() + chunk.slice(1));
+        }
+      });
+    }
   });
-  var linksDiv = document.getElementById('revLinks');
-  linksDiv.innerHTML = '';
-  var hasLinks = false;
-  document.querySelectorAll('#linkList input').forEach(function(l) {
-    if (l.value.trim()) { hasLinks = true; linksDiv.innerHTML += '<div class="review-item"><span class="value" style="text-align:left;max-width:100%;word-break:break-all">' + l.value.trim() + '</span></div>'; }
-  });
-  if (!hasLinks) linksDiv.innerHTML = '<div class="review-item"><span class="label">No links added</span></div>';
+  
+  // If no tasks extracted, create one from the description
+  if (tasks.length === 0) {
+    tasks.push('Review the project description and create an action plan');
+    tasks.push('Begin executing on the primary goal');
+  }
+  
+  // Limit tasks
+  tasks = tasks.slice(0, 8);
+  
+  // Detect tone
+  var tone = 'professional';
+  if (/casual|friendly|chill|relaxed/i.test(lines)) tone = 'casual';
+  if (/technical|developer|engineering|code/i.test(lines)) tone = 'technical';
+  if (/creative|design|brand|content/i.test(lines)) tone = 'creative';
+  
+  return {
+    project: project,
+    role: role,
+    tasks: tasks,
+    tone: tone
+  };
 }
 
-function buildTemplate() {
-  var project = document.getElementById('projectName').value.trim();
-  var role = document.getElementById('agentRole').value.trim();
-  var rules = document.getElementById('agentRules').value.trim();
-  var ai = document.getElementById('aiChoice').options[document.getElementById('aiChoice').selectedIndex].text;
-  var tasks = []; document.querySelectorAll('#taskList input').forEach(function(t) { if (t.value.trim()) tasks.push(t.value.trim()); });
-  var links = []; document.querySelectorAll('#linkList input').forEach(function(l) { if (l.value.trim()) links.push(l.value.trim()); });
-
-  var tpl = '== SOUL ==\n\nProject: ' + project + '\nAgent Role: ' + role + '\nTone: ' + selectedTone + '\n';
-  if (rules) tpl += 'Rules:\n' + rules + '\n';
-  tpl += 'AI: ' + ai + '\nCreated: ' + new Date().toLocaleDateString() + '\n\n---\n\n== TODO ==\n\n';
-  tasks.forEach(function(t) { tpl += '[ ] ' + t + '\n'; });
-  tpl += '\n== DONE ==\n\n(Nothing yet - your agent will move completed tasks here)\n\n---\n\n== LIVE LINKS ==\n\n';
-  if (links.length > 0) links.forEach(function(l) { tpl += '- ' + l + '\n'; });
-  else tpl += '(Add important links here)\n';
+function buildTemplate(parsed) {
+  var tpl = '== SOUL ==\n\n';
+  tpl += 'Project: ' + parsed.project + '\n';
+  tpl += 'Agent Role: ' + parsed.role + '\n';
+  tpl += 'Tone: ' + parsed.tone + '\n';
+  tpl += 'Created: ' + new Date().toLocaleDateString() + '\n';
+  tpl += '\n---\n\n== TODO ==\n\n';
+  parsed.tasks.forEach(function(t) {
+    tpl += '[ ] ' + t + '\n';
+  });
+  tpl += '\n== DONE ==\n\n(Nothing yet - your agent will move completed tasks here)\n';
+  tpl += '\n---\n\n== LIVE LINKS ==\n\n(Add important links here)\n';
   tpl += '\n---\n\n== WHAT\'S NEXT ==\n\n';
-  if (tasks.length > 0) tpl += 'Priority: ' + tasks[0] + '\nStatus: Not started\nBlocked by: Nothing\n';
-  tpl += '\n---\n\n== FEED RULES ==\n\n1. After completing a task, move it from TODO to DONE with a timestamp\n2. Update WHAT\'S NEXT with the next priority\n3. Never delete tasks - always move to DONE\n4. Add new discoveries to LIVE LINKS\n5. If stuck, note the blocker in WHAT\'S NEXT and move to the next task\n';
+  if (parsed.tasks.length > 0) {
+    tpl += 'Priority: ' + parsed.tasks[0] + '\n';
+    tpl += 'Status: Not started\n';
+    tpl += 'Blocked by: Nothing\n';
+  }
+  tpl += '\n---\n\n== FEED RULES ==\n\n';
+  tpl += '1. After completing a task, move it from TODO to DONE with a timestamp\n';
+  tpl += '2. Update WHAT\'S NEXT with the next priority\n';
+  tpl += '3. Never delete tasks - always move to DONE\n';
+  tpl += '4. Add new discoveries to LIVE LINKS\n';
+  tpl += '5. If stuck, note the blocker in WHAT\'S NEXT and move to the next task\n';
   return tpl;
 }
 
-function buildPrompt(docUrl) {
-  var project = document.getElementById('projectName').value.trim();
-  var role = document.getElementById('agentRole').value.trim();
-  var rules = document.getElementById('agentRules').value.trim();
-  var p = 'You are an AI agent working on "' + project + '".\n\n';
-  p += 'Your role: ' + role + '\nYour tone: ' + selectedTone + '\n';
-  if (rules) p += 'Your rules: ' + rules + '\n';
+function buildPrompt(parsed, docUrl) {
+  var p = 'You are an AI agent working on "' + parsed.project + '".\n\n';
+  p += 'Your role: ' + parsed.role + '\n';
+  p += 'Your tone: ' + parsed.tone + '\n';
   p += '\nYour memory document is here: ' + docUrl + '\n';
   p += '\nBEFORE doing anything, read the document above. It contains your full operating system:\n';
   p += '- SOUL: Your identity and rules\n- TODO / DONE: Your task list\n- LIVE LINKS: Important resources\n- WHAT\'S NEXT: Your priority queue\n';
-  p += '\nTHE LOOP (follow every session):\n1. Read the entire memory document\n2. Understand current state from TODO/DONE\n3. Pick the top task from TODO\n4. Execute it completely\n5. Move it to DONE with timestamp\n6. Update WHAT\'S NEXT\n7. Report what you did and what\'s next\n';
+  p += '\nTHE LOOP (follow every session):\n';
+  p += '1. Read the entire memory document\n';
+  p += '2. Understand current state from TODO/DONE\n';
+  p += '3. Pick the top task from TODO\n';
+  p += '4. Execute it completely\n';
+  p += '5. Move it to DONE with timestamp\n';
+  p += '6. Update WHAT\'S NEXT\n';
+  p += '7. Report what you did and what\'s next\n';
   p += '\nALWAYS update the document after completing a task. The document IS your memory.\nStart now. Read the document and begin working.';
   return p;
 }
 
 function generate() {
-  var template = buildTemplate();
+  var idea = document.getElementById('ideaInput').value.trim();
+  var parsed = parseIdea(idea);
+  var template = buildTemplate(parsed);
 
   if (googleConnected && accessToken) {
-    // Write directly to a new Google Doc
     document.getElementById('generateBtn').disabled = true;
-    document.getElementById('writingStatus').classList.remove('hidden');
+    document.getElementById('writingStatus').style.display = 'block';
 
     // Create a new Google Doc
     fetch('https://www.googleapis.com/drive/v3/files', {
       method: 'POST',
-      headers: { 'Authorization': 'Bearer ' + accessToken, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: 'AgentOS - ' + document.getElementById('projectName').value.trim(), mimeType: 'application/vnd.google-apps.document' })
+      headers: {
+        'Authorization': 'Bearer ' + accessToken,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        name: 'AgentOS - ' + parsed.project.substring(0, 50),
+        mimeType: 'application/vnd.google-apps.document'
+      })
     })
     .then(function(r) { return r.json(); })
     .then(function(file) {
+      if (file.error) throw new Error(file.error.message);
       var docId = file.id;
       var docUrl = 'https://docs.google.com/document/d/' + docId + '/edit';
+
       // Write template to the doc
-      var requests = [{ insertText: { location: { index: 1 }, text: template } }];
+      var requests = [{
+        insertText: {
+          location: { index: 1 },
+          text: template
+        }
+      }];
+
       return fetch('https://docs.googleapis.com/v1/documents/' + docId + ':batchUpdate', {
         method: 'POST',
-        headers: { 'Authorization': 'Bearer ' + accessToken, 'Content-Type': 'application/json' },
+        headers: {
+          'Authorization': 'Bearer ' + accessToken,
+          'Content-Type': 'application/json'
+        },
         body: JSON.stringify({ requests: requests })
-      }).then(function() { return docUrl; });
+      }).then(function(r) { return r.json(); })
+        .then(function(result) {
+          if (result.error) throw new Error(result.error.message);
+          return docUrl;
+        });
     })
     .then(function(docUrl) {
-      document.getElementById('writingStatus').classList.add('hidden');
-      var prompt = buildPrompt(docUrl);
+      document.getElementById('writingStatus').style.display = 'none';
+      var prompt = buildPrompt(parsed, docUrl);
       document.getElementById('promptOutput').textContent = prompt;
       document.getElementById('templateSection').classList.add('hidden');
       document.getElementById('successTitle').textContent = 'Your Agent is Ready!';
-      document.getElementById('successDesc').innerHTML = 'Template written to your Google Doc! <a href="' + docUrl + '" target="_blank" style="color:var(--green)">Open your doc &#8599;</a><br><br>Copy the starter prompt below and paste it into your AI.';
-      document.getElementById('finalInstruction').textContent = 'Your Google Doc is set up. Use the starter prompt with your AI to begin.';
-      document.getElementById('outputSection').classList.remove('hidden');
-      setTimeout(function() { document.getElementById('outputSection').scrollIntoView({ behavior: 'smooth' }); }, 200);
+      document.getElementById('successDesc').innerHTML = 'Template written to your Google Doc! <a href="' + docUrl + '" target="_blank" style="color:var(--green)">Open your doc &nearr;</a><br><br>Copy the starter prompt below and paste it into your AI to begin.';
+      document.getElementById('outputSection').style.display = 'block';
+      setTimeout(function() {
+        document.getElementById('outputSection').scrollIntoView({ behavior: 'smooth' });
+      }, 200);
     })
     .catch(function(err) {
-      document.getElementById('writingStatus').innerHTML = '<span style="color:var(--red)">Error writing to Google Doc. Generating template for manual copy instead.</span>';
+      console.error('Google Doc error:', err);
+      document.getElementById('writingStatus').innerHTML = '<span style="color:var(--red)">Error: ' + err.message + '. Generating template for manual copy.</span>';
       setTimeout(function() {
-        document.getElementById('writingStatus').classList.add('hidden');
-        showManualOutput(template);
-      }, 2000);
+        document.getElementById('writingStatus').style.display = 'none';
+        showManualOutput(parsed, template);
+      }, 2500);
     });
   } else {
-    showManualOutput(template);
+    showManualOutput(parsed, template);
   }
 }
 
-function showManualOutput(template) {
+function showManualOutput(parsed, template) {
   var docUrl = document.getElementById('docUrl').value.trim() || '[YOUR_GOOGLE_DOC_URL]';
-  var prompt = buildPrompt(docUrl);
+  var prompt = buildPrompt(parsed, docUrl);
   document.getElementById('promptOutput').textContent = prompt;
   document.getElementById('templateOutput').textContent = template;
   document.getElementById('templateSection').classList.remove('hidden');
-  document.getElementById('outputSection').classList.remove('hidden');
-  setTimeout(function() { document.getElementById('outputSection').scrollIntoView({ behavior: 'smooth' }); }, 200);
+  document.getElementById('outputSection').style.display = 'block';
+  setTimeout(function() {
+    document.getElementById('outputSection').scrollIntoView({ behavior: 'smooth' });
+  }, 200);
 }
 
 function copyPrompt() {
   navigator.clipboard.writeText(document.getElementById('promptOutput').textContent).then(function() {
-    var btn = document.querySelector('#outputSection .copy-btn');
-    btn.innerHTML = '&#10003; Copied!'; setTimeout(function() { btn.innerHTML = '&#128203; Copy'; }, 2000);
+    var btn = document.querySelector('.output-section .copy-btn');
+    btn.innerHTML = '&#10003; Copied!';
+    setTimeout(function() { btn.innerHTML = '&#128203; Copy'; }, 2000);
   });
 }
 
 function copyTemplate() {
   navigator.clipboard.writeText(document.getElementById('templateOutput').textContent).then(function() {
-    var btns = document.querySelectorAll('#outputSection .copy-btn');
-    btns[1].innerHTML = '&#10003; Copied!'; setTimeout(function() { btns[1].innerHTML = '&#128203; Copy Template'; }, 2000);
+    var btns = document.querySelectorAll('.output-section .copy-btn');
+    if (btns[1]) {
+      btns[1].innerHTML = '&#10003; Copied!';
+      setTimeout(function() { btns[1].innerHTML = '&#128203; Copy'; }, 2000);
+    }
   });
 }
-
-validateStep1();
 </script>
 </body>
-  </html>
+</html>
