@@ -142,7 +142,6 @@ var SCOPES = 'https://www.googleapis.com/auth/documents https://www.googleapis.c
 var googleConnected = false;
 var accessToken = null;
 
-// Check if returning from OAuth
 (function() {
   var token = sessionStorage.getItem('google_access_token');
   var email = sessionStorage.getItem('google_user_email');
@@ -157,7 +156,6 @@ var accessToken = null;
 })();
 
 function connectGoogle() {
-  // Save the idea text before redirecting
   sessionStorage.setItem('agentos_idea', document.getElementById('ideaInput').value);
   var authUrl = 'https://accounts.google.com/o/oauth2/v2/auth'
     + '?client_id=' + encodeURIComponent(CLIENT_ID)
@@ -169,7 +167,6 @@ function connectGoogle() {
   window.location.href = authUrl;
 }
 
-// Restore idea text after OAuth redirect
 (function() {
   var saved = sessionStorage.getItem('agentos_idea');
   if (saved) {
@@ -181,61 +178,69 @@ function connectGoogle() {
 function validateForm() {
   var btn = document.getElementById('generateBtn');
   var idea = document.getElementById('ideaInput').value.trim();
-  var hasDoc = googleConnected || document.getElementById('docUrl').value.includes('docs.google.com');
-  btn.disabled = !(idea.length > 10 && (hasDoc || googleConnected));
-  // Also enable if they have an idea but no doc (we'll show manual template)
-  if (idea.length > 10) btn.disabled = false;
+  btn.disabled = !(idea.length > 10);
 }
 
 function parseIdea(text) {
-  // Extract meaningful info from the free-text idea
   var lines = text.trim();
   
-  // Try to figure out a project name (first sentence or first ~5 words)
-  var firstSentence = lines.split(/[.!\n]/)[0].trim();
-  var project = firstSentence.length > 60 ? firstSentence.substring(0, 60) + '...' : firstSentence;
+  // Extract a clean project name from the first meaningful phrase
+  var project = lines.split(/[.!\n]/)[0].trim();
+  // Remove common filler starts
+  project = project.replace(/^(I need |I want |I'm looking for |Build me |Create |Make |Help me with )/i, '');
+  if (project.length > 60) project = project.substring(0, 57) + '...';
   
-  // The whole thing becomes the role
   var role = lines;
   
-  // Try to extract tasks - look for action words
+  // Better task extraction - split by common delimiters and find action phrases
   var tasks = [];
-  var taskPatterns = lines.split(/[.,;\n]+/);
-  taskPatterns.forEach(function(chunk) {
-    chunk = chunk.trim();
-    if (chunk.length > 5 && chunk.length < 200) {
-      // Check for action-like words
-      var actionWords = ['manage','handle','track','create','build','write','update','monitor','send','check','review','analyze','generate','schedule','organize','respond','follow','research','post','plan','develop','maintain','support','automate','find','set up','optimize','report'];
-      var lower = chunk.toLowerCase();
-      actionWords.forEach(function(w) {
-        if (lower.indexOf(w) > -1 && tasks.indexOf(chunk) === -1) {
-          tasks.push(chunk.charAt(0).toUpperCase() + chunk.slice(1));
-        }
-      });
+  var seen = {};
+  // Split on sentence boundaries and list markers
+  var chunks = lines.split(/[.;\n]+|,\s*(?=and |track |monitor |handle |manage |create |build |write |update |send |check |review |analyze |generate |schedule |organize |respond |follow |research |post |plan |develop |maintain |support |automate |find |set up|optimize|report)/i);
+  
+  chunks.forEach(function(chunk) {
+    chunk = chunk.trim().replace(/^(and |it should |should |also )/i, '');
+    if (chunk.length < 5 || chunk.length > 120) return;
+    
+    var lower = chunk.toLowerCase();
+    // Skip meta/filler sentences
+    if (/^(i need|i want|the tone|it should be|professional|friendly|casual)/i.test(chunk)) return;
+    
+    var actionWords = ['manage','handle','track','create','build','write','update','monitor','send','check','review','analyze','generate','schedule','organize','respond','follow up','research','post','plan','develop','maintain','support','automate','find','set up','optimize','report','process','prepare','draft','compile','coordinate','execute'];
+    var isAction = false;
+    actionWords.forEach(function(w) {
+      if (lower.indexOf(w) > -1) isAction = true;
+    });
+    
+    if (isAction) {
+      // Clean up and capitalize
+      var task = chunk.charAt(0).toUpperCase() + chunk.slice(1);
+      // Remove trailing "and" or similar
+      task = task.replace(/\s+(and|or)\s*$/i, '');
+      if (!seen[task.toLowerCase()]) {
+        seen[task.toLowerCase()] = true;
+        tasks.push(task);
+      }
     }
   });
   
-  // If no tasks extracted, create one from the description
   if (tasks.length === 0) {
-    tasks.push('Review the project description and create an action plan');
-    tasks.push('Begin executing on the primary goal');
+    tasks.push('Review the project brief and create an action plan');
+    tasks.push('Begin executing on the primary objective');
+    tasks.push('Report progress and identify next steps');
   }
   
-  // Limit tasks
   tasks = tasks.slice(0, 8);
   
-  // Detect tone
+  // Better tone detection - check specific phrases first, then keywords
   var tone = 'professional';
-  if (/casual|friendly|chill|relaxed/i.test(lines)) tone = 'casual';
-  if (/technical|developer|engineering|code/i.test(lines)) tone = 'technical';
-  if (/creative|design|brand|content/i.test(lines)) tone = 'creative';
+  if (/professional/i.test(lines)) tone = 'professional';
+  else if (/casual|friendly|chill|relaxed|fun/i.test(lines)) tone = 'casual';
+  else if (/technical|developer|engineering|code|devops/i.test(lines)) tone = 'technical';
+  else if (/creative|design|brand|artistic/i.test(lines)) tone = 'creative';
+  else if (/concise|brief|short|minimal/i.test(lines)) tone = 'concise';
   
-  return {
-    project: project,
-    role: role,
-    tasks: tasks,
-    tone: tone
-  };
+  return { project: project, role: role, tasks: tasks, tone: tone };
 }
 
 function buildTemplate(parsed) {
@@ -245,16 +250,13 @@ function buildTemplate(parsed) {
   tpl += 'Tone: ' + parsed.tone + '\n';
   tpl += 'Created: ' + new Date().toLocaleDateString() + '\n';
   tpl += '\n---\n\n== TODO ==\n\n';
-  parsed.tasks.forEach(function(t) {
-    tpl += '[ ] ' + t + '\n';
-  });
+  parsed.tasks.forEach(function(t) { tpl += '[ ] ' + t + '\n'; });
   tpl += '\n== DONE ==\n\n(Nothing yet - your agent will move completed tasks here)\n';
   tpl += '\n---\n\n== LIVE LINKS ==\n\n(Add important links here)\n';
   tpl += '\n---\n\n== WHAT\'S NEXT ==\n\n';
   if (parsed.tasks.length > 0) {
     tpl += 'Priority: ' + parsed.tasks[0] + '\n';
-    tpl += 'Status: Not started\n';
-    tpl += 'Blocked by: Nothing\n';
+    tpl += 'Status: Not started\nBlocked by: Nothing\n';
   }
   tpl += '\n---\n\n== FEED RULES ==\n\n';
   tpl += '1. After completing a task, move it from TODO to DONE with a timestamp\n';
@@ -293,39 +295,20 @@ function generate() {
     document.getElementById('generateBtn').disabled = true;
     document.getElementById('writingStatus').style.display = 'block';
 
-    // Create a new Google Doc
     fetch('https://www.googleapis.com/drive/v3/files', {
       method: 'POST',
-      headers: {
-        'Authorization': 'Bearer ' + accessToken,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        name: 'AgentOS - ' + parsed.project.substring(0, 50),
-        mimeType: 'application/vnd.google-apps.document'
-      })
+      headers: { 'Authorization': 'Bearer ' + accessToken, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'AgentOS - ' + parsed.project.substring(0, 50), mimeType: 'application/vnd.google-apps.document' })
     })
     .then(function(r) { return r.json(); })
     .then(function(file) {
       if (file.error) throw new Error(file.error.message);
       var docId = file.id;
       var docUrl = 'https://docs.google.com/document/d/' + docId + '/edit';
-
-      // Write template to the doc
-      var requests = [{
-        insertText: {
-          location: { index: 1 },
-          text: template
-        }
-      }];
-
       return fetch('https://docs.googleapis.com/v1/documents/' + docId + ':batchUpdate', {
         method: 'POST',
-        headers: {
-          'Authorization': 'Bearer ' + accessToken,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ requests: requests })
+        headers: { 'Authorization': 'Bearer ' + accessToken, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ requests: [{ insertText: { location: { index: 1 }, text: template } }] })
       }).then(function(r) { return r.json(); })
         .then(function(result) {
           if (result.error) throw new Error(result.error.message);
@@ -340,17 +323,12 @@ function generate() {
       document.getElementById('successTitle').textContent = 'Your Agent is Ready!';
       document.getElementById('successDesc').innerHTML = 'Template written to your Google Doc! <a href="' + docUrl + '" target="_blank" style="color:var(--green)">Open your doc &nearr;</a><br><br>Copy the starter prompt below and paste it into your AI to begin.';
       document.getElementById('outputSection').style.display = 'block';
-      setTimeout(function() {
-        document.getElementById('outputSection').scrollIntoView({ behavior: 'smooth' });
-      }, 200);
+      setTimeout(function() { document.getElementById('outputSection').scrollIntoView({ behavior: 'smooth' }); }, 200);
     })
     .catch(function(err) {
       console.error('Google Doc error:', err);
       document.getElementById('writingStatus').innerHTML = '<span style="color:var(--red)">Error: ' + err.message + '. Generating template for manual copy.</span>';
-      setTimeout(function() {
-        document.getElementById('writingStatus').style.display = 'none';
-        showManualOutput(parsed, template);
-      }, 2500);
+      setTimeout(function() { document.getElementById('writingStatus').style.display = 'none'; showManualOutput(parsed, template); }, 2500);
     });
   } else {
     showManualOutput(parsed, template);
@@ -364,9 +342,7 @@ function showManualOutput(parsed, template) {
   document.getElementById('templateOutput').textContent = template;
   document.getElementById('templateSection').classList.remove('hidden');
   document.getElementById('outputSection').style.display = 'block';
-  setTimeout(function() {
-    document.getElementById('outputSection').scrollIntoView({ behavior: 'smooth' });
-  }, 200);
+  setTimeout(function() { document.getElementById('outputSection').scrollIntoView({ behavior: 'smooth' }); }, 200);
 }
 
 function copyPrompt() {
@@ -380,10 +356,7 @@ function copyPrompt() {
 function copyTemplate() {
   navigator.clipboard.writeText(document.getElementById('templateOutput').textContent).then(function() {
     var btns = document.querySelectorAll('.output-section .copy-btn');
-    if (btns[1]) {
-      btns[1].innerHTML = '&#10003; Copied!';
-      setTimeout(function() { btns[1].innerHTML = '&#128203; Copy'; }, 2000);
-    }
+    if (btns[1]) { btns[1].innerHTML = '&#10003; Copied!'; setTimeout(function() { btns[1].innerHTML = '&#128203; Copy'; }, 2000); }
   });
 }
 </script>
