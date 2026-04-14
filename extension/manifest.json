@@ -1,4 +1,45 @@
 {
+  "manifest_version": 3,
+  "name": "AgentOS Bridge",
+  "version": "1.3.0",
+  "description": "Connect any AI chat to your AgentOS Google Doc. Gives your AI persistent memory.",
+  "permissions": [
+    "storage",
+    "activeTab",
+    "identity"
+  ],
+  "oauth2": {
+    "client_id": "930312309217-9tgvu1i7o3hrogrmnooplbpgminq54m9.apps.googleusercontent.com",
+    "scopes": [
+      "https://www.googleapis.com/auth/documents",
+      "https://www.googleapis.com/auth/spreadsheets"
+    ]
+  },
+  "host_permissions": [
+    "https://docs.googleapis.com/*",
+    "https://www.googleapis.com/*",
+    "https://accounts.google.com/*",
+    "https://oauth2.googleapis.com/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://chatgpt.com/*",
+        "https://chat.openai.com/*",
+        "https://claude.ai/*",
+        "https://gemini.google.com/*"
+      ],
+      "js": ["content.js"],
+      "css": ["content.css"]
+    }
+  ],
+  "action": {
+    "default_popup": "popup.html"
+  }
+}{
       "manifest_version": 3,
       "name": "AgentOS Bridge",
       "version": "1.2.1",
