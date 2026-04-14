@@ -5,10 +5,8 @@
 (function() {
   'use strict';
 
-  // Command pattern: [AGENTOS:action:param1:param2...]
+  // Command patterns the AI might use
   var CMD_PATTERN = /\[AGENTOS:(\w+):([^\]]+)\]/g;
-
-  // Alternative patterns the AI might use
   var ALT_PATTERNS = [
     /\[UPDATE_DOC:\s*(.+?)\]/g,
     /\[TASK_DONE:\s*(.+?)\]/g,
@@ -19,216 +17,194 @@
 
   var processedNodes = new WeakSet();
   var statusBadge = null;
+  var readDocBtn = null;
+  var isConnected = false;
 
-  // ============================================
+  // ===========================================
   // STATUS BADGE (floating indicator)
-  // ============================================
+  // ===========================================
 
-  function createStatusBadge() {
-    if (statusBadge) return;
+  function createBadge() {
     statusBadge = document.createElement('div');
     statusBadge.id = 'agentos-badge';
     statusBadge.innerHTML = '<span class="agentos-dot"></span> AgentOS';
     document.body.appendChild(statusBadge);
 
-    // Check connection status
-    chrome.runtime.sendMessage({ action: 'getStatus' }, function(resp) {
-      if (resp && resp.connected) {
-        statusBadge.classList.add('connected');
-        statusBadge.title = 'Connected to: ' + (resp.title || resp.docId);
-      } else {
-        statusBadge.classList.add('disconnected');
-        statusBadge.title = 'No doc connected. Click the AgentOS extension icon to connect.';
-      }
-    });
-  }
-
-  function flashBadge(message, type) {
-    if (!statusBadge) return;
-    var oldText = statusBadge.innerHTML;
-    statusBadge.innerHTML = '<span class="agentos-dot ' + (type || 'info') + '"></span> ' + message;
-    statusBadge.classList.add('flash');
-    setTimeout(function() {
-      statusBadge.innerHTML = oldText;
-      statusBadge.classList.remove('flash');
-    }, 3000);
-  }
-
-  // ============================================
-  // COMMAND PARSER
-  // ============================================
-
-  function parseCommands(text) {
-    var commands = [];
-
-    // Standard format: [AGENTOS:action:params]
-    var match;
-    CMD_PATTERN.lastIndex = 0;
-    while ((match = CMD_PATTERN.exec(text)) !== null) {
-      commands.push({ action: match[1].toLowerCase(), params: match[2] });
-    }
-
-    // Alternative formats
-    ALT_PATTERNS.forEach(function(pattern, idx) {
-      pattern.lastIndex = 0;
-      while ((match = pattern.exec(text)) !== null) {
-        var actions = ['update', 'markDone', 'addTask', 'addLink', 'updateNext'];
-        commands.push({ action: actions[idx], params: match[1].trim() });
-      }
-    });
-
-    return commands;
-  }
-
-  // ============================================
-  // COMMAND EXECUTOR
-  // ============================================
-
-  function executeCommand(cmd) {
-    switch (cmd.action) {
-      case 'markdone':
-      case 'taskdone':
-      case 'done':
-        chrome.runtime.sendMessage({ action: 'markDone', task: cmd.params }, function(resp) {
-          if (resp && resp.success) {
-            flashBadge('Task done: ' + cmd.params.substring(0, 30), 'success');
+    readDocBtn = document.createElement('button');
+    readDocBtn.id = 'agentos-read-btn';
+    readDocBtn.innerHTML = '📄 Read Doc';
+    readDocBtn.addEventListener('click', function() {
+      chrome.runtime.sendMessage({ action: 'readDoc' }, function(resp) {
+        if (resp && resp.success && resp.text) {
+          // Find the chat input and paste doc content
+          var input = findChatInput();
+          if (input) {
+            insertTextIntoChat(input, resp.text);
+            showNotification('Doc content pasted into chat!');
           } else {
-            flashBadge('Error: ' + (resp ? resp.error : 'unknown'), 'error');
+            showNotification('Could not find chat input');
           }
-        });
-        break;
+        } else {
+          showNotification(resp ? resp.error : 'Failed to read doc');
+        }
+      });
+    });
+    document.body.appendChild(readDocBtn);
+  }
 
-      case 'addtask':
-      case 'newtask':
-      case 'todo':
-        chrome.runtime.sendMessage({ action: 'addTask', task: cmd.params }, function(resp) {
-          if (resp && resp.success) {
-            flashBadge('Task added: ' + cmd.params.substring(0, 30), 'success');
-          } else {
-            flashBadge('Error: ' + (resp ? resp.error : 'unknown'), 'error');
-          }
-        });
-        break;
-
-      case 'addlink':
-      case 'link':
-        var parts = cmd.params.split('|');
-        chrome.runtime.sendMessage({ action: 'addLink', url: parts[0].trim(), label: parts[1] ? parts[1].trim() : '' }, function(resp) {
-          if (resp && resp.success) {
-            flashBadge('Link added', 'success');
-          }
-        });
-        break;
-
-      case 'updatenext':
-      case 'next':
-      case 'priority':
-        chrome.runtime.sendMessage({ action: 'updateNext', priority: cmd.params }, function(resp) {
-          if (resp && resp.success) {
-            flashBadge('Priority updated', 'success');
-          }
-        });
-        break;
-
-      case 'update':
-        // Generic update - append to doc
-        chrome.runtime.sendMessage({ action: 'appendText', text: '\n' + cmd.params + '\n' }, function(resp) {
-          if (resp && resp.success) {
-            flashBadge('Doc updated', 'success');
-          }
-        });
-        break;
-
-      default:
-        console.log('[AgentOS] Unknown command:', cmd.action, cmd.params);
+  function updateBadgeStatus(connected) {
+    isConnected = connected;
+    if (statusBadge) {
+      var dot = statusBadge.querySelector('.agentos-dot');
+      if (dot) {
+        dot.style.background = connected ? '#00ff88' : '#ff4444';
+      }
     }
   }
 
-  // ============================================
-  // DOM OBSERVER - watches for new AI messages
-  // ============================================
+  // ===========================================
+  // FIND CHAT INPUT
+  // ===========================================
+
+  function findChatInput() {
+    // ChatGPT
+    var el = document.querySelector('#prompt-textarea') ||
+             document.querySelector('[contenteditable="true"]') ||
+             document.querySelector('textarea[data-id]') ||
+             document.querySelector('textarea');
+    return el;
+  }
+
+  function insertTextIntoChat(input, text) {
+    if (input.tagName === 'TEXTAREA' || input.tagName === 'INPUT') {
+      input.value = text;
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    } else {
+      // contenteditable
+      input.focus();
+      input.textContent = text;
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+  }
+
+  // ===========================================
+  // NOTIFICATION
+  // ===========================================
+
+  function showNotification(msg) {
+    var notif = document.createElement('div');
+    notif.className = 'agentos-notification';
+    notif.textContent = msg;
+    document.body.appendChild(notif);
+    setTimeout(function() { notif.remove(); }, 3000);
+  }
+
+  // ===========================================
+  // MONITOR AI OUTPUT
+  // ===========================================
 
   function scanNode(node) {
     if (processedNodes.has(node)) return;
-
     var text = node.textContent || '';
-    if (text.indexOf('[AGENTOS:') > -1 || text.indexOf('[UPDATE_DOC:') > -1 ||
-        text.indexOf('[TASK_DONE:') > -1 || text.indexOf('[ADD_TASK:') > -1 ||
-        text.indexOf('[ADD_LINK:') > -1 || text.indexOf('[NEXT:') > -1) {
 
+    // Check for TASK_DONE pattern
+    var taskDoneMatch = text.match(/\[TASK_DONE:\s*(.+?)\]/);
+    if (taskDoneMatch) {
       processedNodes.add(node);
-      var commands = parseCommands(text);
-      if (commands.length > 0) {
-        console.log('[AgentOS] Found', commands.length, 'command(s)');
-        commands.forEach(executeCommand);
-      }
+      var taskText = taskDoneMatch[1].trim();
+      showNotification('Marking done: ' + taskText);
+      chrome.runtime.sendMessage({ action: 'taskDone', taskText: taskText }, function(resp) {
+        if (resp && resp.success) {
+          showNotification('✅ Task marked done in doc!');
+        } else {
+          showNotification('❌ Failed: ' + (resp ? resp.error : 'unknown'));
+        }
+      });
+    }
+
+    // Check for ADD_TASK pattern
+    var addTaskMatch = text.match(/\[ADD_TASK:\s*(.+?)\]/);
+    if (addTaskMatch) {
+      processedNodes.add(node);
+      var newTask = addTaskMatch[1].trim();
+      showNotification('Adding task: ' + newTask);
+      chrome.runtime.sendMessage({ action: 'addTask', taskText: newTask }, function(resp) {
+        if (resp && resp.success) {
+          showNotification('✅ Task added to doc!');
+        } else {
+          showNotification('❌ Failed: ' + (resp ? resp.error : 'unknown'));
+        }
+      });
+    }
+
+    // Check for generic AGENTOS command
+    var agentosMatch = text.match(/\[AGENTOS:(\w+):([^\]]+)\]/);
+    if (agentosMatch) {
+      processedNodes.add(node);
+      var action = agentosMatch[1];
+      var payload = agentosMatch[2];
+      showNotification('AgentOS command: ' + action);
+      chrome.runtime.sendMessage({ action: 'appendToDoc', text: '\n[' + new Date().toLocaleDateString() + '] AI Command: ' + action + ' - ' + payload });
     }
   }
 
-  function observeChat() {
-    var observer = new MutationObserver(function(mutations) {
-      mutations.forEach(function(mutation) {
-        mutation.addedNodes.forEach(function(node) {
-          if (node.nodeType === 1) {
-            // Check the node and its children
-            scanNode(node);
-            node.querySelectorAll && node.querySelectorAll('*').forEach(scanNode);
+  // MutationObserver to watch for new AI output
+  var observer = new MutationObserver(function(mutations) {
+    if (!isConnected) return;
+    for (var i = 0; i < mutations.length; i++) {
+      var mutation = mutations[i];
+      for (var j = 0; j < mutation.addedNodes.length; j++) {
+        var node = mutation.addedNodes[j];
+        if (node.nodeType === 1) { // Element node
+          scanNode(node);
+          // Also scan children
+          var children = node.querySelectorAll('p, span, div, li, code, pre');
+          for (var k = 0; k < children.length; k++) {
+            scanNode(children[k]);
           }
-        });
-        // Also check modified nodes
-        if (mutation.type === 'characterData' && mutation.target.parentElement) {
-          scanNode(mutation.target.parentElement);
         }
-      });
-    });
+      }
+    }
+  });
 
-    observer.observe(document.body, {
-      childList: true,
-      subtree: true,
-      characterData: true
-    });
+  // ===========================================
+  // MESSAGE HANDLER (from popup)
+  // ===========================================
 
-    console.log('[AgentOS] Chat observer started');
-  }
+  chrome.runtime.onMessage.addListener(function(msg, sender, sendResponse) {
+    if (msg.action === 'connected') {
+      updateBadgeStatus(true);
+      showNotification('AgentOS connected to doc!');
+    } else if (msg.action === 'disconnected') {
+      updateBadgeStatus(false);
+      showNotification('AgentOS disconnected');
+    }
+  });
 
-  // ============================================
-  // INJECT "READ DOC" BUTTON
-  // ============================================
-
-  function injectReadButton() {
-    // Add a small floating button to read the current doc state
-    var btn = document.createElement('button');
-    btn.id = 'agentos-read-btn';
-    btn.textContent = '📄 Read Doc';
-    btn.title = 'Copy current AgentOS doc state to clipboard';
-    btn.addEventListener('click', function() {
-      chrome.runtime.sendMessage({ action: 'readDoc' }, function(resp) {
-        if (resp && resp.success) {
-          navigator.clipboard.writeText(resp.text).then(function() {
-            flashBadge('Doc copied to clipboard!', 'success');
-            btn.textContent = '✓ Copied!';
-            setTimeout(function() { btn.textContent = '📄 Read Doc'; }, 2000);
-          });
-        } else {
-          flashBadge('Error reading doc', 'error');
-        }
-      });
-    });
-    document.body.appendChild(btn);
-  }
-
-  // ============================================
+  // ===========================================
   // INIT
-  // ============================================
+  // ===========================================
 
   function init() {
-    createStatusBadge();
-    observeChat();
-    injectReadButton();
-    console.log('[AgentOS Bridge] Loaded on', window.location.hostname);
+    createBadge();
+
+    // Check if already connected
+    chrome.runtime.sendMessage({ action: 'getStatus' }, function(resp) {
+      if (resp && resp.loggedIn && resp.docId) {
+        updateBadgeStatus(true);
+      } else {
+        updateBadgeStatus(false);
+      }
+    });
+
+    // Start observing
+    observer.observe(document.body, {
+      childList: true,
+      subtree: true
+    });
   }
 
-  // Wait for page to be ready
+  // Wait for page to load
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', init);
   } else {
