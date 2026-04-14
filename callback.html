@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AgentOS - Connecting...</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:system-ui,sans-serif;background:#0a0a0a;color:#fafafa;display:flex;align-items:center;justify-content:center;min-height:100vh;text-align:center}
+.wrap{max-width:400px;padding:40px}
+.spinner{width:48px;height:48px;border:3px solid #222;border-top-color:#3b82f6;border-radius:50%;animation:spin 1s linear infinite;margin:0 auto 24px}
+@keyframes spin{to{transform:rotate(360deg)}}
+h2{font-size:24px;margin-bottom:8px}
+p{color:#888;font-size:14px}
+.success{color:#22c55e}
+.error{color:#ef4444}
+</style>
+</head>
+<body>
+<div class="wrap">
+<div class="spinner" id="spinner"></div>
+<h2 id="title">Connecting to Google...</h2>
+<p id="msg">Please wait while we complete the connection.</p>
+</div>
+<script>
+(function() {
+  // Parse the access token from the URL hash (implicit grant flow)
+  var hash = window.location.hash.substring(1);
+  var params = {};
+  hash.split('&').forEach(function(part) {
+    var kv = part.split('=');
+    params[decodeURIComponent(kv[0])] = decodeURIComponent(kv[1] || '');
+  });
+
+  if (params.access_token) {
+    // Store the token
+    sessionStorage.setItem('google_access_token', params.access_token);
+    
+    // Get user info to show who connected
+    fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
+      headers: { 'Authorization': 'Bearer ' + params.access_token }
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(user) {
+      sessionStorage.setItem('google_user_email', user.email || '');
+      sessionStorage.setItem('google_user_name', user.name || '');
+      document.getElementById('spinner').style.display = 'none';
+      document.getElementById('title').textContent = 'Connected!';
+      document.getElementById('title').className = 'success';
+      document.getElementById('msg').textContent = 'Signed in as ' + (user.email || 'Google User') + '. Redirecting...';
+      setTimeout(function() {
+        window.location.href = 'setup.html?connected=true';
+      }, 1500);
+    })
+    .catch(function() {
+      sessionStorage.setItem('google_user_email', 'connected');
+      document.getElementById('spinner').style.display = 'none';
+      document.getElementById('title').textContent = 'Connected!';
+      document.getElementById('title').className = 'success';
+      document.getElementById('msg').textContent = 'Google account connected. Redirecting...';
+      setTimeout(function() {
+        window.location.href = 'setup.html?connected=true';
+      }, 1500);
+    });
+  } else if (params.error) {
+    document.getElementById('spinner').style.display = 'none';
+    document.getElementById('title').textContent = 'Connection Failed';
+    document.getElementById('title').className = 'error';
+    document.getElementById('msg').textContent = params.error_description || 'Could not connect to Google. Please try again.';
+    setTimeout(function() {
+      window.location.href = 'setup.html';
+    }, 3000);
+  } else {
+    document.getElementById('spinner').style.display = 'none';
+    document.getElementById('title').textContent = 'No Token Found';
+    document.getElementById('title').className = 'error';
+    document.getElementById('msg').textContent = 'Redirecting back to setup...';
+    setTimeout(function() {
+      window.location.href = 'setup.html';
+    }, 2000);
+  }
+})();
+</script>
+</body>
+</html>
