@@ -1,324 +1,240 @@
 // AgentOS Bridge - Background Service Worker
-// Handles Google OAuth, reads/writes Google Docs
+// Handles Google OAuth via web flow, reads/writes Google Docs
 
-// ============================================
-// AUTH
-// ============================================
+const CLIENT_ID = '930312309217-9tgvu1i7o3hrogrmnooplbpgminq54m9.apps.googleusercontent.com';
+const REDIRECT_URI = 'https://nickberger1993-ai.github.io/agentos/callback.html';
+const SCOPES = 'https://www.googleapis.com/auth/documents https://www.googleapis.com/auth/drive.file';
 
-function getAuthToken(interactive) {
-  return new Promise(function(resolve, reject) {
-    chrome.identity.getAuthToken({ interactive: interactive }, function(token) {
-      if (chrome.runtime.lastError) {
-        reject(chrome.runtime.lastError);
+// ===========================================
+// AUTH - Web OAuth Flow
+// ===========================================
+
+function getStoredToken() {
+  return new Promise((resolve) => {
+    chrome.storage.local.get(['access_token', 'token_expiry'], (data) => {
+      if (data.access_token && data.token_expiry && Date.now() < data.token_expiry) {
+        resolve(data.access_token);
       } else {
-        resolve(token);
+        resolve(null);
       }
     });
   });
 }
 
-// ============================================
+function storeToken(token, expiresIn) {
+  const expiry = Date.now() + (expiresIn * 1000) - 60000; // 1 min buffer
+  chrome.storage.local.set({ access_token: token, token_expiry: expiry });
+}
+
+async function launchOAuth() {
+  const authUrl = 'https://accounts.google.com/o/oauth2/v2/auth' +
+    '?client_id=' + encodeURIComponent(CLIENT_ID) +
+    '&redirect_uri=' + encodeURIComponent(REDIRECT_URI) +
+    '&response_type=token' +
+    '&scope=' + encodeURIComponent(SCOPES) +
+    '&prompt=consent';
+
+  // Open auth in a new tab
+  const tab = await chrome.tabs.create({ url: authUrl });
+
+  return new Promise((resolve, reject) => {
+    // Listen for the callback tab to load with the token
+    function listener(tabId, changeInfo) {
+      if (tabId === tab.id && changeInfo.url && changeInfo.url.startsWith(REDIRECT_URI)) {
+        chrome.tabs.onUpdated.removeListener(listener);
+        const url = new URL(changeInfo.url.replace('#', '?')); // hash to search params
+        const token = url.searchParams.get('access_token');
+        const expiresIn = parseInt(url.searchParams.get('expires_in') || '3600');
+        if (token) {
+          storeToken(token, expiresIn);
+          chrome.tabs.remove(tabId);
+          resolve(token);
+        } else {
+          chrome.tabs.remove(tabId);
+          reject(new Error('No token received'));
+        }
+      }
+    }
+    chrome.tabs.onUpdated.addListener(listener);
+  });
+}
+
+async function getAuthToken(interactive) {
+  let token = await getStoredToken();
+  if (token) return token;
+  if (!interactive) throw new Error('Not signed in');
+  return launchOAuth();
+}
+
+// ===========================================
 // GOOGLE DOCS API
-// ============================================
+// ===========================================
 
 async function readDoc(docId) {
-  var token = await getAuthToken(false);
-  var resp = await fetch('https://docs.googleapis.com/v1/documents/' + docId, {
-    headers: { 'Authorization': 'Bearer ' + token }
-  });
+  const token = await getAuthToken(false);
+  const resp = await fetch(
+    'https://docs.googleapis.com/v1/documents/' + docId,
+    { headers: { 'Authorization': 'Bearer ' + token } }
+  );
   if (!resp.ok) throw new Error('Failed to read doc: ' + resp.status);
-  var doc = await resp.json();
-
-  // Extract plain text from the doc
-  var text = '';
+  const doc = await resp.json();
+  // Extract plain text from doc
+  let text = '';
   if (doc.body && doc.body.content) {
-    doc.body.content.forEach(function(el) {
+    for (const el of doc.body.content) {
       if (el.paragraph && el.paragraph.elements) {
-        el.paragraph.elements.forEach(function(e) {
-          if (e.textRun) text += e.textRun.content;
-        });
+        for (const pe of el.paragraph.elements) {
+          if (pe.textRun) text += pe.textRun.content;
+        }
       }
-    });
+    }
   }
-  return { text: text, title: doc.title, docId: docId };
+  return text;
 }
 
 async function appendToDoc(docId, text) {
-  var token = await getAuthToken(false);
-  // First get doc to find end index
-  var resp = await fetch('https://docs.googleapis.com/v1/documents/' + docId, {
-    headers: { 'Authorization': 'Bearer ' + token }
-  });
-  var doc = await resp.json();
-  var endIndex = 1;
-  if (doc.body && doc.body.content) {
-    var last = doc.body.content[doc.body.content.length - 1];
-    if (last) endIndex = last.endIndex - 1;
-  }
+  const token = await getAuthToken(false);
+  // First get doc length
+  const docResp = await fetch(
+    'https://docs.googleapis.com/v1/documents/' + docId,
+    { headers: { 'Authorization': 'Bearer ' + token } }
+  );
+  const doc = await docResp.json();
+  const endIndex = doc.body.content[doc.body.content.length - 1].endIndex - 1;
 
-  var resp2 = await fetch('https://docs.googleapis.com/v1/documents/' + docId + ':batchUpdate', {
-    method: 'POST',
-    headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      requests: [{ insertText: { location: { index: endIndex }, text: text } }]
-    })
-  });
-  if (!resp2.ok) throw new Error('Failed to write doc: ' + resp2.status);
-  return await resp2.json();
-}
-
-async function replaceInDoc(docId, oldText, newText) {
-  var token = await getAuthToken(false);
-  var resp = await fetch('https://docs.googleapis.com/v1/documents/' + docId + ':batchUpdate', {
-    method: 'POST',
-    headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      requests: [{
-        replaceAllText: {
-          containsText: { text: oldText, matchCase: true },
-          replaceText: newText
-        }
-      }]
-    })
-  });
-  if (!resp.ok) throw new Error('Failed to replace in doc: ' + resp.status);
-  return await resp.json();
-}
-
-// ============================================
-// TASK OPERATIONS
-// ============================================
-
-async function markTaskDone(docId, taskText) {
-  var timestamp = new Date().toLocaleString();
-  // Replace [ ] task with [x] task in TODO, and add to DONE
-  await replaceInDoc(docId, '[ ] ' + taskText, '');
-
-  // Add to DONE section
-  var doc = await readDoc(docId);
-  var doneMarker = '== DONE ==';
-  var doneIdx = doc.text.indexOf(doneMarker);
-  if (doneIdx > -1) {
-    var insertAfter = doneIdx + doneMarker.length;
-    // Find next newline after DONE marker
-    var nextNl = doc.text.indexOf('\n', insertAfter);
-    if (nextNl > -1) {
-      var token = await getAuthToken(false);
-      await fetch('https://docs.googleapis.com/v1/documents/' + docId + ':batchUpdate', {
-        method: 'POST',
-        headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          requests: [{ insertText: { location: { index: nextNl + 1 }, text: '[' + timestamp + '] ' + taskText + '\n' } }]
-        })
-      });
-    }
-  }
-  return { success: true, task: taskText, timestamp: timestamp };
-}
-
-async function addTask(docId, taskText) {
-  var doc = await readDoc(docId);
-  var todoMarker = '== TODO ==';
-  var todoIdx = doc.text.indexOf(todoMarker);
-  if (todoIdx > -1) {
-    var insertAfter = todoIdx + todoMarker.length;
-    var nextNl = doc.text.indexOf('\n', insertAfter);
-    if (nextNl > -1) {
-      var token = await getAuthToken(false);
-      await fetch('https://docs.googleapis.com/v1/documents/' + docId + ':batchUpdate', {
-        method: 'POST',
-        headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          requests: [{ insertText: { location: { index: nextNl + 1 }, text: '[ ] ' + taskText + '\n' } }]
-        })
-      });
-    }
-  }
-  return { success: true, task: taskText };
-}
-
-async function updateWhatsNext(docId, priority, status, blocker) {
-  var doc = await readDoc(docId);
-  var marker = '== WHAT\'S NEXT ==';
-  var idx = doc.text.indexOf(marker);
-  if (idx === -1) marker = '== WHATS NEXT ==';
-  idx = doc.text.indexOf(marker);
-  if (idx > -1) {
-    // Find the section end (next == or end)
-    var sectionEnd = doc.text.indexOf('\n---', idx + marker.length);
-    if (sectionEnd === -1) sectionEnd = doc.text.indexOf('== ', idx + marker.length);
-    if (sectionEnd === -1) sectionEnd = doc.text.length;
-
-    var newContent = '\nPriority: ' + priority + '\nStatus: ' + (status || 'In progress') + '\nBlocked by: ' + (blocker || 'Nothing') + '\n';
-
-    var token = await getAuthToken(false);
-    // Delete old content and insert new
-    var startDel = idx + marker.length;
-    await fetch('https://docs.googleapis.com/v1/documents/' + docId + ':batchUpdate', {
+  const resp = await fetch(
+    'https://docs.googleapis.com/v1/documents/' + docId + ':batchUpdate',
+    {
       method: 'POST',
-      headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
+      headers: {
+        'Authorization': 'Bearer ' + token,
+        'Content-Type': 'application/json'
+      },
       body: JSON.stringify({
-        requests: [
-          { deleteContentRange: { range: { startIndex: startDel, endIndex: sectionEnd } } },
-          { insertText: { location: { index: startDel }, text: newContent } }
-        ]
-      })
-    });
-  }
-  return { success: true };
-}
-
-async function addLink(docId, url, label) {
-  var doc = await readDoc(docId);
-  var marker = '== LIVE LINKS ==';
-  var idx = doc.text.indexOf(marker);
-  if (idx > -1) {
-    var insertAfter = idx + marker.length;
-    var nextNl = doc.text.indexOf('\n', insertAfter);
-    if (nextNl > -1) {
-      var linkText = label ? '- ' + label + ': ' + url : '- ' + url;
-      var token = await getAuthToken(false);
-      await fetch('https://docs.googleapis.com/v1/documents/' + docId + ':batchUpdate', {
-        method: 'POST',
-        headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          requests: [{ insertText: { location: { index: nextNl + 1 }, text: linkText + '\n' } }]
-        })
-      });
-    }
-  }
-  return { success: true };
-}
-
-// ============================================
-// MESSAGE HANDLER
-// ============================================
-
-chrome.runtime.onMessage.addListener(function(msg, sender, sendResponse) {
-  var docId = null;
-
-  // Get stored doc ID
-  chrome.storage.local.get(['docId'], function(data) {
-    docId = data.docId;
-
-    if (!docId && msg.action !== 'setDoc' && msg.action !== 'login' && msg.action !== 'getStatus') {
-      sendResponse({ error: 'No Google Doc connected. Use the popup to connect one.' });
-      return;
-    }
-
-    switch (msg.action) {
-      case 'login':
-        getAuthToken(true).then(function(token) {
-          sendResponse({ success: true, token: token });
-        }).catch(function(err) {
-          sendResponse({ error: err.message });
-        });
-        break;
-
-      case 'setDoc':
-        // Extract doc ID from URL or direct ID
-        var id = msg.docId;
-        if (id.includes('docs.google.com')) {
-          var match = id.match(/\/d\/([a-zA-Z0-9_-]+)/);
-          if (match) id = match[1];
-        }
-        chrome.storage.local.set({ docId: id, docUrl: msg.docId }, function() {
-          sendResponse({ success: true, docId: id });
-        });
-        break;
-
-      case 'getStatus':
-        chrome.storage.local.get(['docId', 'docUrl'], function(data) {
-          if (data.docId) {
-            readDoc(data.docId).then(function(doc) {
-              // Parse sections
-              var text = doc.text;
-              var todos = [];
-              var dones = [];
-              var todoMatch = text.match(/== TODO ==([\s\S]*?)(?:== DONE|---)/);
-              if (todoMatch) {
-                todoMatch[1].split('\n').forEach(function(line) {
-                  line = line.trim();
-                  if (line.startsWith('[ ]')) todos.push(line.replace('[ ] ', ''));
-                });
-              }
-              var doneMatch = text.match(/== DONE ==([\s\S]*?)(?:---)/);
-              if (doneMatch) {
-                doneMatch[1].split('\n').forEach(function(line) {
-                  line = line.trim();
-                  if (line.startsWith('[') && !line.startsWith('[ ]')) dones.push(line);
-                });
-              }
-              sendResponse({
-                connected: true,
-                docId: data.docId,
-                docUrl: data.docUrl,
-                title: doc.title,
-                todos: todos,
-                dones: dones,
-                whatsNext: text.match(/Priority:\s*(.+)/)?.[1] || 'None'
-              });
-            }).catch(function(err) {
-              sendResponse({ connected: true, docId: data.docId, error: err.message });
-            });
-          } else {
-            sendResponse({ connected: false });
+        requests: [{
+          insertText: {
+            location: { index: endIndex },
+            text: text
           }
-        });
-        break;
-
-      case 'readDoc':
-        readDoc(docId).then(function(doc) {
-          sendResponse({ success: true, text: doc.text, title: doc.title });
-        }).catch(function(err) {
-          sendResponse({ error: err.message });
-        });
-        break;
-
-      case 'markDone':
-        markTaskDone(docId, msg.task).then(function(r) {
-          sendResponse(r);
-        }).catch(function(err) {
-          sendResponse({ error: err.message });
-        });
-        break;
-
-      case 'addTask':
-        addTask(docId, msg.task).then(function(r) {
-          sendResponse(r);
-        }).catch(function(err) {
-          sendResponse({ error: err.message });
-        });
-        break;
-
-      case 'addLink':
-        addLink(docId, msg.url, msg.label).then(function(r) {
-          sendResponse(r);
-        }).catch(function(err) {
-          sendResponse({ error: err.message });
-        });
-        break;
-
-      case 'updateNext':
-        updateWhatsNext(docId, msg.priority, msg.status, msg.blocker).then(function(r) {
-          sendResponse(r);
-        }).catch(function(err) {
-          sendResponse({ error: err.message });
-        });
-        break;
-
-      case 'appendText':
-        appendToDoc(docId, msg.text).then(function(r) {
-          sendResponse({ success: true });
-        }).catch(function(err) {
-          sendResponse({ error: err.message });
-        });
-        break;
-
-      default:
-        sendResponse({ error: 'Unknown action: ' + msg.action });
+        }]
+      })
     }
-  });
+  );
+  if (!resp.ok) throw new Error('Failed to append: ' + resp.status);
+  return true;
+}
 
-  return true; // keep message channel open for async
+async function replaceInDoc(docId, find, replace) {
+  const token = await getAuthToken(false);
+  const resp = await fetch(
+    'https://docs.googleapis.com/v1/documents/' + docId + ':batchUpdate',
+    {
+      method: 'POST',
+      headers: {
+        'Authorization': 'Bearer ' + token,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        requests: [{
+          replaceAllText: {
+            containsText: { text: find, matchCase: true },
+            replaceText: replace
+          }
+        }]
+      })
+    }
+  );
+  if (!resp.ok) throw new Error('Failed to replace: ' + resp.status);
+  return true;
+}
+
+// Helper: Mark task done - moves from TODO to DONE
+async function markTaskDone(docId, taskText) {
+  const timestamp = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'numeric', day: 'numeric' });
+  // Replace [ ] task with [x] task in TODO
+  await replaceInDoc(docId, '[ ] ' + taskText, '[x] ' + taskText);
+  // Add to DONE section
+  const doneEntry = '\n[' + timestamp + '] ' + taskText;
+  const docText = await readDoc(docId);
+  const doneIndex = docText.indexOf('== DONE ==');
+  if (doneIndex !== -1) {
+    // Append after the DONE header line
+    const afterDone = docText.indexOf('\n', doneIndex + 10);
+    await appendToDoc(docId, doneEntry);
+  }
+  return true;
+}
+
+// Helper: Add new task to TODO
+async function addTask(docId, taskText) {
+  await replaceInDoc(docId, '== TODO ==', '== TODO ==\n[ ] ' + taskText);
+  return true;
+}
+
+// ===========================================
+// MESSAGE HANDLER
+// ===========================================
+
+chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  (async () => {
+    try {
+      switch (msg.action) {
+        case 'login':
+          const token = await launchOAuth();
+          sendResponse({ success: true, token });
+          break;
+
+        case 'checkAuth':
+          const stored = await getStoredToken();
+          sendResponse({ loggedIn: !!stored });
+          break;
+
+        case 'logout':
+          chrome.storage.local.remove(['access_token', 'token_expiry']);
+          sendResponse({ success: true });
+          break;
+
+        case 'setDocId':
+          chrome.storage.local.set({ docId: msg.docId });
+          sendResponse({ success: true });
+          break;
+
+        case 'getStatus':
+          const statusToken = await getStoredToken();
+          const statusData = await new Promise(r => chrome.storage.local.get(['docId'], r));
+          sendResponse({ loggedIn: !!statusToken, docId: statusData.docId || null });
+          break;
+
+        case 'readDoc':
+          const docData = await new Promise(r => chrome.storage.local.get(['docId'], r));
+          const text = await readDoc(docData.docId || msg.docId);
+          sendResponse({ success: true, text });
+          break;
+
+        case 'taskDone':
+          const doneData = await new Promise(r => chrome.storage.local.get(['docId'], r));
+          await markTaskDone(doneData.docId, msg.taskText);
+          sendResponse({ success: true });
+          break;
+
+        case 'addTask':
+          const addData = await new Promise(r => chrome.storage.local.get(['docId'], r));
+          await addTask(addData.docId, msg.taskText);
+          sendResponse({ success: true });
+          break;
+
+        case 'appendToDoc':
+          const appendData = await new Promise(r => chrome.storage.local.get(['docId'], r));
+          await appendToDoc(appendData.docId, msg.text);
+          sendResponse({ success: true });
+          break;
+
+        default:
+          sendResponse({ error: 'Unknown action' });
+      }
+    } catch (err) {
+      sendResponse({ error: err.message });
+    }
+  })();
+  return true; // keep channel open for async
 });
