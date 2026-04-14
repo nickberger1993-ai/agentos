@@ -48,6 +48,15 @@ select option{background:var(--surface);color:var(--text)}
 .btn-secondary{background:transparent;border:1px solid var(--border);color:var(--text)}
 .btn-secondary:hover{border-color:var(--muted)}
 .btn:disabled{opacity:.4;cursor:not-allowed}
+.google-btn{display:flex;align-items:center;justify-content:center;gap:12px;width:100%;padding:14px;background:#fff;color:#333;border:1px solid #ddd;border-radius:10px;font-size:15px;font-weight:600;cursor:pointer;margin-bottom:16px;transition:all .2s}
+.google-btn:hover{background:#f5f5f5;border-color:#bbb}
+.google-btn svg{width:20px;height:20px}
+.connected-badge{display:flex;align-items:center;gap:10px;background:rgba(34,197,94,.1);border:1px solid rgba(34,197,94,.3);border-radius:10px;padding:14px 16px;margin-bottom:16px}
+.connected-badge .dot{width:10px;height:10px;background:var(--green);border-radius:50%}
+.connected-badge .info{font-size:14px}
+.connected-badge .email{color:var(--green);font-weight:600}
+.or-divider{display:flex;align-items:center;gap:16px;margin:20px 0;color:var(--muted);font-size:13px}
+.or-divider::before,.or-divider::after{content:"";flex:1;height:1px;background:var(--border)}
 .review-section{background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:32px;margin-bottom:24px}
 .review-section h3{font-size:18px;font-weight:600;margin-bottom:16px;display:flex;align-items:center;gap:10px}
 .review-section h3 .ico{font-size:20px}
@@ -68,6 +77,9 @@ select option{background:var(--surface);color:var(--text)}
 .glow{animation:glow 2s ease-in-out infinite alternate}
 @keyframes glow{from{box-shadow:0 0 20px rgba(59,130,246,.2)}to{box-shadow:0 0 40px rgba(59,130,246,.4)}}
 .hidden{display:none}
+.writing-status{background:var(--surface);border:1px solid var(--accent);border-radius:12px;padding:20px;margin-top:24px;text-align:center}
+.writing-status .spinner{display:inline-block;width:20px;height:20px;border:2px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .8s linear infinite;margin-right:8px;vertical-align:middle}
+@keyframes spin{to{transform:rotate(360deg)}}
 @media(max-width:768px){.wrap{padding:32px 16px 80px}h2{font-size:28px}nav{padding:16px 20px}.btn-row{flex-direction:column}.review-item{flex-direction:column;gap:4px}.review-item .value{text-align:left;max-width:100%}}
 </style>
 </head>
@@ -84,26 +96,27 @@ select option{background:var(--surface);color:var(--text)}
 <div id="step1" class="step">
 <h2>Connect Your Google Doc</h2>
 <p class="step-desc">This document becomes your agent's brain. It will store memory, tasks, and identity.</p>
+
+<div id="googleConnected" class="connected-badge hidden">
+<div class="dot"></div>
+<div class="info">Connected as <span class="email" id="connectedEmail">-</span></div>
+</div>
+
+<div id="googleConnectSection">
+<button class="google-btn" onclick="connectGoogle()">
+<svg viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>
+Connect with Google
+</button>
+</div>
+
+<div class="or-divider">or connect manually</div>
+
 <div class="form-group">
-<label>How do you want to connect?</label>
-<div class="tag-container" style="margin-top:12px">
-<div class="tag selected" data-method="paste" onclick="selectMethod(this)">Paste a Doc URL</div>
-<div class="tag" data-method="new" onclick="selectMethod(this)">I'll create a new one</div>
-</div>
-</div>
-<div id="pasteSection" class="form-group">
 <label>Google Doc URL</label>
 <div class="hint">Paste the full URL of your Google Doc (must have edit access)</div>
 <input type="url" id="docUrl" placeholder="https://docs.google.com/document/d/..." oninput="validateStep1()">
 </div>
-<div id="newSection" class="form-group hidden">
-<div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:24px">
-<p style="font-size:14px;color:var(--muted);margin-bottom:16px">We'll generate the full AgentOS template for you. After setup, you'll copy it into a new Google Doc.</p>
-<div style="display:flex;align-items:center;gap:8px;color:var(--green)">
-<span>&#10003;</span><span style="font-size:14px">Template will be generated in Step 4</span>
-</div>
-</div>
-</div>
+
 <div class="btn-row">
 <button class="btn btn-primary" id="btn1" onclick="goStep(2)">Continue &#8594;</button>
 </div>
@@ -171,7 +184,7 @@ select option{background:var(--surface);color:var(--text)}
 <label>Important Links (optional)</label>
 <div class="hint">Add links your agent should know about (website, docs, tools, etc.)</div>
 <div class="task-list" id="linkList">
-<div class="task-item"><input type="url" placeholder="https://your-website.com" oninput="validateStep3()"><button onclick="removeTask(this)">&#10005;</button></div>
+<div class="task-item"><input type="url" placeholder="https://your-website.com"><button onclick="removeTask(this)">&#10005;</button></div>
 </div>
 <button class="add-task" onclick="addLink()">+ Add another link</button>
 </div>
@@ -212,14 +225,18 @@ select option{background:var(--surface);color:var(--text)}
 
 <div class="btn-row">
 <button class="btn btn-secondary" onclick="goStep(3)">&#8592; Back</button>
-<button class="btn btn-primary glow" onclick="generate()">&#9889; Generate Agent &#9889;</button>
+<button class="btn btn-primary glow" id="generateBtn" onclick="generate()">&#9889; Generate Agent &#9889;</button>
+</div>
+
+<div id="writingStatus" class="writing-status hidden">
+<span class="spinner"></span> Writing template to your Google Doc...
 </div>
 
 <div id="outputSection" class="hidden" style="margin-top:48px">
 <div class="success-msg">
 <div class="check">&#9889;</div>
-<h2>Your Agent is Ready!</h2>
-<p>Copy the starter prompt below and paste it into your first session with your AI. Your agent will initialize with full memory.</p>
+<h2 id="successTitle">Your Agent is Ready!</h2>
+<p id="successDesc">Copy the starter prompt below and paste it into your first session with your AI. Your agent will initialize with full memory.</p>
 </div>
 
 <h3 style="margin-bottom:12px;font-size:16px">Starter Prompt</h3>
@@ -228,14 +245,16 @@ select option{background:var(--surface);color:var(--text)}
 <pre id="promptOutput"></pre>
 </div>
 
+<div id="templateSection">
 <h3 style="margin:32px 0 12px;font-size:16px">AgentOS Document Template</h3>
 <div class="prompt-output">
 <button class="copy-btn" onclick="copyTemplate()">&#128203; Copy Template</button>
 <pre id="templateOutput"></pre>
 </div>
+</div>
 
 <div style="text-align:center;margin-top:40px">
-<p style="color:var(--muted);font-size:14px;margin-bottom:16px">Paste the template into your Google Doc, then use the starter prompt with your AI.</p>
+<p id="finalInstruction" style="color:var(--muted);font-size:14px;margin-bottom:16px">Paste the template into your Google Doc, then use the starter prompt with your AI.</p>
 <a href="index.html" class="btn btn-secondary" style="display:inline-block;text-decoration:none">&#8592; Back to AgentOS</a>
 </div>
 </div>
@@ -243,222 +262,239 @@ select option{background:var(--surface);color:var(--text)}
 </div>
 
 <script>
-let currentStep = 1;
-let selectedMethod = 'paste';
-let selectedTone = 'professional';
+var CLIENT_ID = '930312309217-9tgvu1i7o3hrogrmnooplbpgminq54m9.apps.googleusercontent.com';
+var REDIRECT_URI = 'https://nickberger1993-ai.github.io/agentos/callback.html';
+var SCOPES = 'https://www.googleapis.com/auth/documents https://www.googleapis.com/auth/drive.file';
 
-function selectMethod(el) {
-  document.querySelectorAll('[data-method]').forEach(t => t.classList.remove('selected'));
-  el.classList.add('selected');
-  selectedMethod = el.dataset.method;
-  document.getElementById('pasteSection').classList.toggle('hidden', selectedMethod !== 'paste');
-  document.getElementById('newSection').classList.toggle('hidden', selectedMethod !== 'new');
-  validateStep1();
+var currentStep = 1;
+var selectedTone = 'professional';
+var googleConnected = false;
+var accessToken = null;
+
+// Check if returning from OAuth
+(function() {
+  var token = sessionStorage.getItem('google_access_token');
+  var email = sessionStorage.getItem('google_user_email');
+  if (token && window.location.search.indexOf('connected=true') > -1) {
+    accessToken = token;
+    googleConnected = true;
+    document.getElementById('googleConnected').classList.remove('hidden');
+    document.getElementById('connectedEmail').textContent = email || 'Google User';
+    document.getElementById('googleConnectSection').classList.add('hidden');
+    validateStep1();
+  }
+})();
+
+function connectGoogle() {
+  var authUrl = 'https://accounts.google.com/o/oauth2/v2/auth'
+    + '?client_id=' + encodeURIComponent(CLIENT_ID)
+    + '&redirect_uri=' + encodeURIComponent(REDIRECT_URI)
+    + '&response_type=token'
+    + '&scope=' + encodeURIComponent(SCOPES)
+    + '&include_granted_scopes=true'
+    + '&prompt=consent';
+  window.location.href = authUrl;
 }
 
 function selectTone(el) {
-  document.querySelectorAll('[data-tone]').forEach(t => t.classList.remove('selected'));
+  document.querySelectorAll('[data-tone]').forEach(function(t) { t.classList.remove('selected'); });
   el.classList.add('selected');
   selectedTone = el.dataset.tone;
 }
 
 function validateStep1() {
-  const btn = document.getElementById('btn1');
-  if (selectedMethod === 'new') { btn.disabled = false; return; }
-  const url = document.getElementById('docUrl').value.trim();
+  var btn = document.getElementById('btn1');
+  if (googleConnected) { btn.disabled = false; return; }
+  var url = document.getElementById('docUrl').value.trim();
   btn.disabled = !url.includes('docs.google.com');
 }
 
 function validateStep2() {
-  const btn = document.getElementById('btn2');
-  const name = document.getElementById('projectName').value.trim();
-  const role = document.getElementById('agentRole').value.trim();
+  var btn = document.getElementById('btn2');
+  var name = document.getElementById('projectName').value.trim();
+  var role = document.getElementById('agentRole').value.trim();
   btn.disabled = !(name && role);
 }
 
 function validateStep3() {
-  const btn = document.getElementById('btn3');
-  const tasks = document.querySelectorAll('#taskList input');
-  let hasTask = false;
-  tasks.forEach(t => { if (t.value.trim()) hasTask = true; });
+  var btn = document.getElementById('btn3');
+  var tasks = document.querySelectorAll('#taskList input');
+  var hasTask = false;
+  tasks.forEach(function(t) { if (t.value.trim()) hasTask = true; });
   btn.disabled = !hasTask;
 }
 
 function addTask() {
-  const list = document.getElementById('taskList');
-  const div = document.createElement('div');
+  var list = document.getElementById('taskList');
+  var div = document.createElement('div');
   div.className = 'task-item';
   div.innerHTML = '<input type="text" placeholder="Enter a task..." oninput="validateStep3()"><button onclick="removeTask(this)">\u2715</button>';
   list.appendChild(div);
 }
 
 function addLink() {
-  const list = document.getElementById('linkList');
-  const div = document.createElement('div');
+  var list = document.getElementById('linkList');
+  var div = document.createElement('div');
   div.className = 'task-item';
-  div.innerHTML = '<input type="url" placeholder="https://..." oninput="validateStep3()"><button onclick="removeTask(this)">\u2715</button>';
+  div.innerHTML = '<input type="url" placeholder="https://..."><button onclick="removeTask(this)">\u2715</button>';
   list.appendChild(div);
 }
 
 function removeTask(btn) {
-  const list = btn.parentElement.parentElement;
+  var list = btn.parentElement.parentElement;
   if (list.children.length > 1) btn.parentElement.remove();
 }
 
 function goStep(n) {
   document.getElementById('step' + currentStep).classList.add('hidden');
   document.getElementById('step' + n).classList.remove('hidden');
-  
-  for (let i = 1; i <= 4; i++) {
-    const p = document.getElementById('p' + i);
+  for (var i = 1; i <= 4; i++) {
+    var p = document.getElementById('p' + i);
     p.classList.remove('active', 'done');
     if (i < n) p.classList.add('done');
     if (i === n) p.classList.add('active');
   }
-  
-  const titles = ['Connect Your Doc', 'Agent Identity', 'First Tasks', 'Review & Generate'];
+  var titles = ['Connect Your Doc', 'Agent Identity', 'First Tasks', 'Review & Generate'];
   document.getElementById('stepLabel').textContent = 'Step ' + n + ' of 4';
   document.getElementById('stepTitle').textContent = titles[n - 1];
   currentStep = n;
-  
   if (n === 4) populateReview();
   window.scrollTo(0, 0);
 }
 
 function populateReview() {
-  document.getElementById('revDoc').textContent = selectedMethod === 'paste' ? document.getElementById('docUrl').value.trim() : 'New doc (template will be generated)';
+  var docText = googleConnected ? 'Google connected (' + (sessionStorage.getItem('google_user_email') || '') + ')' : document.getElementById('docUrl').value.trim();
+  if (!docText) docText = 'Manual (template will be copied)';
+  document.getElementById('revDoc').textContent = docText;
   document.getElementById('revProject').textContent = document.getElementById('projectName').value.trim();
   document.getElementById('revRole').textContent = document.getElementById('agentRole').value.trim();
   document.getElementById('revTone').textContent = selectedTone.charAt(0).toUpperCase() + selectedTone.slice(1);
   document.getElementById('revAI').textContent = document.getElementById('aiChoice').options[document.getElementById('aiChoice').selectedIndex].text;
   document.getElementById('revRules').textContent = document.getElementById('agentRules').value.trim() || 'None set';
-  
-  const tasksDiv = document.getElementById('revTasks');
+  var tasksDiv = document.getElementById('revTasks');
   tasksDiv.innerHTML = '';
-  document.querySelectorAll('#taskList input').forEach(t => {
-    if (t.value.trim()) {
-      tasksDiv.innerHTML += '<div class="task-review">' + t.value.trim() + '</div>';
-    }
+  document.querySelectorAll('#taskList input').forEach(function(t) {
+    if (t.value.trim()) tasksDiv.innerHTML += '<div class="task-review">' + t.value.trim() + '</div>';
   });
-  
-  const linksDiv = document.getElementById('revLinks');
+  var linksDiv = document.getElementById('revLinks');
   linksDiv.innerHTML = '';
-  let hasLinks = false;
-  document.querySelectorAll('#linkList input').forEach(l => {
-    if (l.value.trim()) {
-      hasLinks = true;
-      linksDiv.innerHTML += '<div class="review-item"><span class="value" style="text-align:left;max-width:100%;word-break:break-all">' + l.value.trim() + '</span></div>';
-    }
+  var hasLinks = false;
+  document.querySelectorAll('#linkList input').forEach(function(l) {
+    if (l.value.trim()) { hasLinks = true; linksDiv.innerHTML += '<div class="review-item"><span class="value" style="text-align:left;max-width:100%;word-break:break-all">' + l.value.trim() + '</span></div>'; }
   });
   if (!hasLinks) linksDiv.innerHTML = '<div class="review-item"><span class="label">No links added</span></div>';
 }
 
+function buildTemplate() {
+  var project = document.getElementById('projectName').value.trim();
+  var role = document.getElementById('agentRole').value.trim();
+  var rules = document.getElementById('agentRules').value.trim();
+  var ai = document.getElementById('aiChoice').options[document.getElementById('aiChoice').selectedIndex].text;
+  var tasks = []; document.querySelectorAll('#taskList input').forEach(function(t) { if (t.value.trim()) tasks.push(t.value.trim()); });
+  var links = []; document.querySelectorAll('#linkList input').forEach(function(l) { if (l.value.trim()) links.push(l.value.trim()); });
+
+  var tpl = '== SOUL ==\n\nProject: ' + project + '\nAgent Role: ' + role + '\nTone: ' + selectedTone + '\n';
+  if (rules) tpl += 'Rules:\n' + rules + '\n';
+  tpl += 'AI: ' + ai + '\nCreated: ' + new Date().toLocaleDateString() + '\n\n---\n\n== TODO ==\n\n';
+  tasks.forEach(function(t) { tpl += '[ ] ' + t + '\n'; });
+  tpl += '\n== DONE ==\n\n(Nothing yet - your agent will move completed tasks here)\n\n---\n\n== LIVE LINKS ==\n\n';
+  if (links.length > 0) links.forEach(function(l) { tpl += '- ' + l + '\n'; });
+  else tpl += '(Add important links here)\n';
+  tpl += '\n---\n\n== WHAT\'S NEXT ==\n\n';
+  if (tasks.length > 0) tpl += 'Priority: ' + tasks[0] + '\nStatus: Not started\nBlocked by: Nothing\n';
+  tpl += '\n---\n\n== FEED RULES ==\n\n1. After completing a task, move it from TODO to DONE with a timestamp\n2. Update WHAT\'S NEXT with the next priority\n3. Never delete tasks - always move to DONE\n4. Add new discoveries to LIVE LINKS\n5. If stuck, note the blocker in WHAT\'S NEXT and move to the next task\n';
+  return tpl;
+}
+
+function buildPrompt(docUrl) {
+  var project = document.getElementById('projectName').value.trim();
+  var role = document.getElementById('agentRole').value.trim();
+  var rules = document.getElementById('agentRules').value.trim();
+  var p = 'You are an AI agent working on "' + project + '".\n\n';
+  p += 'Your role: ' + role + '\nYour tone: ' + selectedTone + '\n';
+  if (rules) p += 'Your rules: ' + rules + '\n';
+  p += '\nYour memory document is here: ' + docUrl + '\n';
+  p += '\nBEFORE doing anything, read the document above. It contains your full operating system:\n';
+  p += '- SOUL: Your identity and rules\n- TODO / DONE: Your task list\n- LIVE LINKS: Important resources\n- WHAT\'S NEXT: Your priority queue\n';
+  p += '\nTHE LOOP (follow every session):\n1. Read the entire memory document\n2. Understand current state from TODO/DONE\n3. Pick the top task from TODO\n4. Execute it completely\n5. Move it to DONE with timestamp\n6. Update WHAT\'S NEXT\n7. Report what you did and what\'s next\n';
+  p += '\nALWAYS update the document after completing a task. The document IS your memory.\nStart now. Read the document and begin working.';
+  return p;
+}
+
 function generate() {
-  const project = document.getElementById('projectName').value.trim();
-  const role = document.getElementById('agentRole').value.trim();
-  const rules = document.getElementById('agentRules').value.trim();
-  const ai = document.getElementById('aiChoice').options[document.getElementById('aiChoice').selectedIndex].text;
-  const docUrl = selectedMethod === 'paste' ? document.getElementById('docUrl').value.trim() : '[YOUR_NEW_GOOGLE_DOC_URL]';
-  
-  let tasks = [];
-  document.querySelectorAll('#taskList input').forEach(t => {
-    if (t.value.trim()) tasks.push(t.value.trim());
-  });
-  
-  let links = [];
-  document.querySelectorAll('#linkList input').forEach(l => {
-    if (l.value.trim()) links.push(l.value.trim());
-  });
+  var template = buildTemplate();
 
-  // Generate the starter prompt
-  let prompt = 'You are an AI agent working on "' + project + '".\n\n';
-  prompt += 'Your role: ' + role + '\n';
-  prompt += 'Your tone: ' + selectedTone + '\n';
-  if (rules) prompt += 'Your rules: ' + rules + '\n';
-  prompt += '\nYour memory document is here: ' + docUrl + '\n';
-  prompt += '\nBEFORE doing anything, read the document above. It contains your full operating system:\n';
-  prompt += '- SOUL: Your identity and rules\n';
-  prompt += '- TODO / DONE: Your task list\n';
-  prompt += '- LIVE LINKS: Important resources\n';
-  prompt += '- WHAT\'S NEXT: Your priority queue\n';
-  prompt += '\nTHE LOOP (follow every session):\n';
-  prompt += '1. Read the entire memory document\n';
-  prompt += '2. Understand current state from TODO/DONE\n';
-  prompt += '3. Pick the top task from TODO\n';
-  prompt += '4. Execute it completely\n';
-  prompt += '5. Move it to DONE with timestamp\n';
-  prompt += '6. Update WHAT\'S NEXT\n';
-  prompt += '7. Report what you did and what\'s next\n';
-  prompt += '\nALWAYS update the document after completing a task. The document IS your memory.\n';
-  prompt += '\nStart now. Read the document and begin working.';
+  if (googleConnected && accessToken) {
+    // Write directly to a new Google Doc
+    document.getElementById('generateBtn').disabled = true;
+    document.getElementById('writingStatus').classList.remove('hidden');
 
-  // Generate the template
-  let template = '== SOUL ==\n\n';
-  template += 'Project: ' + project + '\n';
-  template += 'Agent Role: ' + role + '\n';
-  template += 'Tone: ' + selectedTone + '\n';
-  if (rules) template += 'Rules:\n' + rules + '\n';
-  template += 'AI: ' + ai + '\n';
-  template += 'Created: ' + new Date().toLocaleDateString() + '\n';
-  template += '\n---\n\n';
-  template += '== TODO ==\n\n';
-  tasks.forEach((t, i) => {
-    template += '[ ] ' + t + '\n';
-  });
-  template += '\n== DONE ==\n\n(Nothing yet - your agent will move completed tasks here)\n';
-  template += '\n---\n\n';
-  template += '== LIVE LINKS ==\n\n';
-  if (links.length > 0) {
-    links.forEach(l => {
-      template += '- ' + l + '\n';
+    // Create a new Google Doc
+    fetch('https://www.googleapis.com/drive/v3/files', {
+      method: 'POST',
+      headers: { 'Authorization': 'Bearer ' + accessToken, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'AgentOS - ' + document.getElementById('projectName').value.trim(), mimeType: 'application/vnd.google-apps.document' })
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(file) {
+      var docId = file.id;
+      var docUrl = 'https://docs.google.com/document/d/' + docId + '/edit';
+      // Write template to the doc
+      var requests = [{ insertText: { location: { index: 1 }, text: template } }];
+      return fetch('https://docs.googleapis.com/v1/documents/' + docId + ':batchUpdate', {
+        method: 'POST',
+        headers: { 'Authorization': 'Bearer ' + accessToken, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ requests: requests })
+      }).then(function() { return docUrl; });
+    })
+    .then(function(docUrl) {
+      document.getElementById('writingStatus').classList.add('hidden');
+      var prompt = buildPrompt(docUrl);
+      document.getElementById('promptOutput').textContent = prompt;
+      document.getElementById('templateSection').classList.add('hidden');
+      document.getElementById('successTitle').textContent = 'Your Agent is Ready!';
+      document.getElementById('successDesc').innerHTML = 'Template written to your Google Doc! <a href="' + docUrl + '" target="_blank" style="color:var(--green)">Open your doc &#8599;</a><br><br>Copy the starter prompt below and paste it into your AI.';
+      document.getElementById('finalInstruction').textContent = 'Your Google Doc is set up. Use the starter prompt with your AI to begin.';
+      document.getElementById('outputSection').classList.remove('hidden');
+      setTimeout(function() { document.getElementById('outputSection').scrollIntoView({ behavior: 'smooth' }); }, 200);
+    })
+    .catch(function(err) {
+      document.getElementById('writingStatus').innerHTML = '<span style="color:var(--red)">Error writing to Google Doc. Generating template for manual copy instead.</span>';
+      setTimeout(function() {
+        document.getElementById('writingStatus').classList.add('hidden');
+        showManualOutput(template);
+      }, 2000);
     });
   } else {
-    template += '(Add important links here)\n';
+    showManualOutput(template);
   }
-  template += '\n---\n\n';
-  template += '== WHAT\'S NEXT ==\n\n';
-  if (tasks.length > 0) {
-    template += 'Priority: ' + tasks[0] + '\n';
-    template += 'Status: Not started\n';
-    template += 'Blocked by: Nothing\n';
-  }
-  template += '\n---\n\n';
-  template += '== FEED RULES ==\n\n';
-  template += '1. After completing a task, move it from TODO to DONE with a timestamp\n';
-  template += '2. Update WHAT\'S NEXT with the next priority\n';
-  template += '3. Never delete tasks - always move to DONE\n';
-  template += '4. Add new discoveries to LIVE LINKS\n';
-  template += '5. If stuck, note the blocker in WHAT\'S NEXT and move to the next task\n';
+}
 
+function showManualOutput(template) {
+  var docUrl = document.getElementById('docUrl').value.trim() || '[YOUR_GOOGLE_DOC_URL]';
+  var prompt = buildPrompt(docUrl);
   document.getElementById('promptOutput').textContent = prompt;
   document.getElementById('templateOutput').textContent = template;
+  document.getElementById('templateSection').classList.remove('hidden');
   document.getElementById('outputSection').classList.remove('hidden');
-  
-  setTimeout(() => {
-    document.getElementById('outputSection').scrollIntoView({ behavior: 'smooth' });
-  }, 200);
+  setTimeout(function() { document.getElementById('outputSection').scrollIntoView({ behavior: 'smooth' }); }, 200);
 }
 
 function copyPrompt() {
-  const text = document.getElementById('promptOutput').textContent;
-  navigator.clipboard.writeText(text).then(() => {
-    const btn = document.querySelector('#outputSection .copy-btn');
-    btn.innerHTML = '&#10003; Copied!';
-    setTimeout(() => { btn.innerHTML = '&#128203; Copy'; }, 2000);
+  navigator.clipboard.writeText(document.getElementById('promptOutput').textContent).then(function() {
+    var btn = document.querySelector('#outputSection .copy-btn');
+    btn.innerHTML = '&#10003; Copied!'; setTimeout(function() { btn.innerHTML = '&#128203; Copy'; }, 2000);
   });
 }
 
 function copyTemplate() {
-  const text = document.getElementById('templateOutput').textContent;
-  navigator.clipboard.writeText(text).then(() => {
-    const btns = document.querySelectorAll('#outputSection .copy-btn');
-    btns[1].innerHTML = '&#10003; Copied!';
-    setTimeout(() => { btns[1].innerHTML = '&#128203; Copy Template'; }, 2000);
+  navigator.clipboard.writeText(document.getElementById('templateOutput').textContent).then(function() {
+    var btns = document.querySelectorAll('#outputSection .copy-btn');
+    btns[1].innerHTML = '&#10003; Copied!'; setTimeout(function() { btns[1].innerHTML = '&#128203; Copy Template'; }, 2000);
   });
 }
 
-// Initial validation
 validateStep1();
 </script>
 </body>
-</html>
+  </html>
