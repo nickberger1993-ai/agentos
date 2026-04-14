@@ -9,9 +9,9 @@ document.addEventListener('DOMContentLoaded', function() {
   var connectDocBtn = document.getElementById('connectDocBtn');
   var disconnectBtn = document.getElementById('disconnectBtn');
 
-  // ============================================
+  // ===========================================
   // CHECK CURRENT STATE
-  // ============================================
+  // ===========================================
 
   function checkStatus() {
     chrome.runtime.sendMessage({ action: 'getStatus' }, function(resp) {
@@ -19,107 +19,49 @@ document.addEventListener('DOMContentLoaded', function() {
         showLogin();
         return;
       }
-
-      if (resp && resp.connected) {
+      if (resp && resp.loggedIn && resp.docId) {
         showStatus(resp);
+      } else if (resp && resp.loggedIn) {
+        showDocInput();
       } else {
-        // Check if logged in
-        chrome.identity.getAuthToken({ interactive: false }, function(token) {
-          if (chrome.runtime.lastError || !token) {
-            showLogin();
-          } else {
-            showDocInput();
-          }
-        });
+        showLogin();
       }
     });
   }
 
-  // ============================================
+  // ===========================================
   // UI STATES
-  // ============================================
+  // ===========================================
 
   function showLogin() {
-    loginSection.classList.remove('hidden');
-    docSection.classList.add('hidden');
-    statusSection.classList.add('hidden');
+    loginSection.style.display = 'block';
+    docSection.style.display = 'none';
+    statusSection.style.display = 'none';
   }
 
   function showDocInput() {
-    loginSection.classList.add('hidden');
-    docSection.classList.remove('hidden');
-    statusSection.classList.add('hidden');
+    loginSection.style.display = 'none';
+    docSection.style.display = 'block';
+    statusSection.style.display = 'none';
   }
 
   function showStatus(data) {
-    loginSection.classList.add('hidden');
-    docSection.classList.add('hidden');
-    statusSection.classList.remove('hidden');
+    loginSection.style.display = 'none';
+    docSection.style.display = 'none';
+    statusSection.style.display = 'block';
 
-    // Update status card
-    var titleEl = document.getElementById('docTitle');
-    titleEl.textContent = data.title || 'AgentOS Doc';
-    if (data.docUrl) {
-      titleEl.href = data.docUrl.includes('docs.google.com') ? data.docUrl : 'https://docs.google.com/document/d/' + data.docId + '/edit';
+    var statusText = document.getElementById('statusText');
+    if (statusText) {
+      statusText.textContent = 'Connected to doc: ' + (data.docId || '').substring(0, 20) + '...';
     }
 
-    document.getElementById('nextPriority').textContent = data.whatsNext || 'None set';
-
-    if (data.error) {
-      document.getElementById('connStatus').textContent = 'Error';
-      document.getElementById('connStatus').style.color = '#ef4444';
-    }
-
-    // Render TODO list
-    var taskList = document.getElementById('taskList');
-    var todoCount = document.getElementById('todoCount');
-    if (data.todos && data.todos.length > 0) {
-      todoCount.textContent = data.todos.length;
-      taskList.innerHTML = '';
-      data.todos.forEach(function(task) {
-        var li = document.createElement('li');
-        li.className = 'task-item';
-        li.innerHTML = '<div class="task-checkbox" data-task="' + escapeHtml(task) + '"></div><span class="task-text">' + escapeHtml(task) + '</span>';
-        taskList.appendChild(li);
-      });
-
-      // Add click handlers for checkboxes
-      taskList.querySelectorAll('.task-checkbox').forEach(function(cb) {
-        cb.addEventListener('click', function() {
-          var taskText = this.dataset.task;
-          this.classList.add('done');
-          this.innerHTML = '&#10003;';
-          chrome.runtime.sendMessage({ action: 'markDone', task: taskText }, function(resp) {
-            if (resp && resp.success) {
-              setTimeout(checkStatus, 500);
-            }
-          });
-        });
-      });
-    } else {
-      todoCount.textContent = '0';
-      taskList.innerHTML = '<li class="empty">No tasks in TODO</li>';
-    }
-
-    // Render DONE list
-    var doneList = document.getElementById('doneList');
-    if (data.dones && data.dones.length > 0) {
-      doneList.innerHTML = '';
-      // Show last 5
-      data.dones.slice(-5).reverse().forEach(function(done) {
-        var li = document.createElement('li');
-        li.className = 'task-item';
-        li.innerHTML = '<div class="task-checkbox done">&#10003;</div><span class="task-text" style="color:#666">' + escapeHtml(done) + '</span>';
-        doneList.appendChild(li);
-      });
-    } else {
-      doneList.innerHTML = '<li class="empty">No completed tasks yet</li>';
-    }
+    // Load tasks from doc
+    loadTasks();
   }
 
-  // ============================================
+  // ===========================================
   // ACTIONS
-  // ============================================
+  // ===========================================
 
   loginBtn.addEventListener('click', function() {
     loginBtn.textContent = 'Signing in...';
@@ -130,56 +72,100 @@ document.addEventListener('DOMContentLoaded', function() {
       } else {
         loginBtn.textContent = 'Sign in with Google';
         loginBtn.disabled = false;
-        alert('Login failed: ' + (resp ? resp.error : 'Unknown error'));
+        var errEl = document.getElementById('loginError');
+        if (errEl) errEl.textContent = resp ? resp.error : 'Login failed';
       }
     });
   });
 
   connectDocBtn.addEventListener('click', function() {
-    var url = document.getElementById('docInput').value.trim();
-    if (!url) {
-      document.getElementById('docError').textContent = 'Please enter a Google Doc URL';
-      document.getElementById('docError').classList.remove('hidden');
-      return;
-    }
-    if (!url.includes('docs.google.com') && !url.match(/^[a-zA-Z0-9_-]{20,}/)) {
-      document.getElementById('docError').textContent = 'Please enter a valid Google Doc URL';
-      document.getElementById('docError').classList.remove('hidden');
+    var docUrl = document.getElementById('docUrl').value.trim();
+    // Extract doc ID from URL
+    var match = docUrl.match(/\/d\/([a-zA-Z0-9_-]+)/);
+    var docId = match ? match[1] : docUrl;
+
+    if (!docId) {
+      alert('Please enter a valid Google Doc URL');
       return;
     }
 
-    connectDocBtn.textContent = 'Connecting...';
-    connectDocBtn.disabled = true;
-
-    chrome.runtime.sendMessage({ action: 'setDoc', docId: url }, function(resp) {
+    chrome.runtime.sendMessage({ action: 'setDocId', docId: docId }, function(resp) {
       if (resp && resp.success) {
-        checkStatus();
-      } else {
-        connectDocBtn.textContent = 'Connect';
-        connectDocBtn.disabled = false;
-        document.getElementById('docError').textContent = resp ? resp.error : 'Connection failed';
-        document.getElementById('docError').classList.remove('hidden');
+        // Notify content script that we're connected
+        chrome.tabs.query({ active: true, currentWindow: true }, function(tabs) {
+          if (tabs[0]) {
+            chrome.tabs.sendMessage(tabs[0].id, { action: 'connected', docId: docId });
+          }
+        });
+        showStatus({ docId: docId });
       }
     });
   });
 
-  disconnectBtn.addEventListener('click', function(e) {
-    e.preventDefault();
-    chrome.storage.local.remove(['docId', 'docUrl'], function() {
-      showDocInput();
+  disconnectBtn.addEventListener('click', function() {
+    chrome.runtime.sendMessage({ action: 'logout' }, function() {
+      // Also notify content script
+      chrome.tabs.query({ active: true, currentWindow: true }, function(tabs) {
+        if (tabs[0]) {
+          chrome.tabs.sendMessage(tabs[0].id, { action: 'disconnected' });
+        }
+      });
+      showLogin();
     });
   });
 
-  // ============================================
-  // HELPERS
-  // ============================================
+  // ===========================================
+  // LOAD TASKS FROM DOC
+  // ===========================================
 
-  function escapeHtml(text) {
-    var div = document.createElement('div');
-    div.textContent = text;
-    return div.innerHTML;
+  function loadTasks() {
+    chrome.runtime.sendMessage({ action: 'readDoc' }, function(resp) {
+      if (resp && resp.success && resp.text) {
+        var todoList = document.getElementById('todoList');
+        var doneList = document.getElementById('doneList');
+        if (!todoList || !doneList) return;
+
+        todoList.innerHTML = '';
+        doneList.innerHTML = '';
+
+        var lines = resp.text.split('\n');
+        var inTodo = false;
+        var inDone = false;
+
+        for (var i = 0; i < lines.length; i++) {
+          var line = lines[i].trim();
+          if (line.indexOf('== TODO ==') !== -1) { inTodo = true; inDone = false; continue; }
+          if (line.indexOf('== DONE ==') !== -1) { inDone = true; inTodo = false; continue; }
+          if (line.indexOf('== ') === 0 && line.indexOf(' ==') !== -1) { inTodo = false; inDone = false; continue; }
+
+          if (inTodo && line.indexOf('[ ]') === 0) {
+            var taskText = line.substring(3).trim();
+            var li = document.createElement('li');
+            li.textContent = taskText;
+            li.style.cursor = 'pointer';
+            li.title = 'Click to mark done';
+            li.addEventListener('click', (function(t) {
+              return function() {
+                chrome.runtime.sendMessage({ action: 'taskDone', taskText: t });
+                this.style.textDecoration = 'line-through';
+                this.style.opacity = '0.5';
+              };
+            })(taskText));
+            todoList.appendChild(li);
+          }
+
+          if (inDone && line.indexOf('[') === 0) {
+            var doneText = line;
+            var li2 = document.createElement('li');
+            li2.textContent = doneText;
+            li2.style.opacity = '0.6';
+            doneList.appendChild(li2);
+          }
+        }
+      }
+    });
   }
 
-  // Init
+  // Start
   checkStatus();
 });
