@@ -1,124 +1,114 @@
 <!DOCTYPE html>
 <html>
 <head>
-<meta charset="UTF-8">
-<style>
-*{margin:0;padding:0;box-sizing:border-box}
-body{width:360px;min-height:200px;background:#0a0a0a;color:#fafafa;font-family:system-ui,sans-serif;font-size:13px}
-.header{display:flex;align-items:center;gap:10px;padding:16px;border-bottom:1px solid #222}
-.header h1{font-size:16px;font-weight:700}
-.header h1 b{color:#3b82f6}
-.header .version{color:#666;font-size:11px}
-.section{padding:16px}
-.section-title{font-size:11px;font-weight:600;color:#3b82f6;text-transform:uppercase;letter-spacing:1px;margin-bottom:12px}
+  <meta charset="UTF-8">
+  <style>
+    *{margin:0;padding:0;box-sizing:border-box}
+    body{width:360px;min-height:200px;background:#0a0a0a;color:#fafafa;font-family:system-ui,sans-serif;font-size:13px}
+    .header{display:flex;align-items:center;gap:10px;padding:16px;border-bottom:1px solid #222}
+    .header h1{font-size:16px;font-weight:700}
+    .header h1 b{color:#3b82f6}
+    .header .version{color:#666;font-size:11px}
+    .section{padding:16px}
+    .section-title{font-size:11px;font-weight:600;color:#3b82f6;text-transform:uppercase;letter-spacing:1px;margin-bottom:12px}
 
-/* Login Section */
-.login-section{text-align:center;padding:32px 16px}
-.login-btn{background:#3b82f6;color:#fff;border:none;padding:12px 24px;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;width:100%;transition:all .2s}
-.login-btn:hover{background:#2563eb}
-.login-desc{color:#888;font-size:12px;margin-bottom:16px}
+    /* Login Section */
+    .login-section{text-align:center;padding:32px 16px}
+    .login-btn{background:#3b82f6;color:#fff;border:none;padding:12px 24px;border-radius:8px;font-size:14px;cursor:pointer;width:100%}
+    .login-btn:hover{background:#2563eb}
+    .login-btn:disabled{background:#555;cursor:not-allowed}
+    .login-desc{color:#888;font-size:12px;margin-bottom:16px}
 
-/* Doc Input */
-.doc-input-wrap{display:flex;gap:8px;margin-bottom:12px}
-.doc-input{flex:1;background:#111;border:1px solid #333;color:#fafafa;padding:10px;border-radius:8px;font-size:12px}
-.doc-input:focus{outline:none;border-color:#3b82f6}
-.doc-input::placeholder{color:#555}
-.connect-btn{background:#3b82f6;color:#fff;border:none;padding:10px 16px;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap}
-.connect-btn:hover{background:#2563eb}
+    /* Doc Input */
+    .doc-input-wrap{display:flex;gap:8px;margin-bottom:12px}
+    .doc-input{flex:1;background:#111;border:1px solid #333;color:#fafafa;padding:10px;border-radius:8px;font-size:12px}
+    .doc-input:focus{outline:none;border-color:#3b82f6}
+    .doc-input::placeholder{color:#555}
+    .connect-btn{background:#3b82f6;color:#fff;border:none;padding:10px 16px;border-radius:8px;cursor:pointer;font-size:12px}
+    .connect-btn:hover{background:#2563eb}
 
-/* Status */
-.status-card{background:#111;border:1px solid #222;border-radius:10px;padding:14px;margin-bottom:12px}
-.status-row{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}
-.status-row:last-child{margin-bottom:0}
-.status-label{color:#888;font-size:11px}
-.status-value{color:#fafafa;font-size:12px;font-weight:500;text-align:right;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.status-value.green{color:#22c55e}
-.status-value a{color:#3b82f6;text-decoration:none}
+    /* Status */
+    .status-card{background:#111;border-radius:8px;padding:12px;margin-bottom:12px}
+    .status-row{display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid #1a1a1a}
+    .status-row:last-child{border-bottom:none}
+    .status-label{color:#888;font-size:11px}
+    .status-value{color:#fafafa;font-size:11px;text-align:right}
+    .status-value.green{color:#22c55e}
 
-/* Tasks */
-.task-list{list-style:none;max-height:150px;overflow-y:auto}
-.task-item{display:flex;align-items:flex-start;gap:8px;padding:8px 0;border-bottom:1px solid #1a1a1a}
-.task-item:last-child{border-bottom:none}
-.task-checkbox{width:16px;height:16px;border:1px solid #444;border-radius:4px;flex-shrink:0;cursor:pointer;display:flex;align-items:center;justify-content:center;margin-top:1px;transition:all .2s}
-.task-checkbox:hover{border-color:#3b82f6}
-.task-checkbox.done{background:#22c55e;border-color:#22c55e}
-.task-text{font-size:12px;line-height:1.4;color:#ccc}
+    /* Task list */
+    .task-list{list-style:none;max-height:150px;overflow-y:auto}
+    .task-item{display:flex;align-items:flex-start;gap:8px;padding:8px 0;border-bottom:1px solid #1a1a1a}
+    .task-item:last-child{border-bottom:none}
+    .task-text{font-size:12px;line-height:1.4;color:#ccc}
 
-/* Empty state */
-.empty{color:#555;font-size:12px;text-align:center;padding:16px}
+    /* Empty state */
+    .empty{color:#555;font-size:12px;text-align:center;padding:16px}
 
-/* Footer */
-.footer{padding:12px 16px;border-top:1px solid #222;display:flex;justify-content:space-between;align-items:center}
-.footer a{color:#666;font-size:11px;text-decoration:none}
-.footer a:hover{color:#3b82f6}
+    /* Footer */
+    .footer{padding:12px 16px;border-top:1px solid #222;display:flex;justify-content:space-between;align-items:center}
+    .footer a{color:#666;font-size:11px;text-decoration:none}
+    .footer a:hover{color:#3b82f6}
 
-.hidden{display:none!important}
-.error{color:#ef4444;font-size:12px;padding:8px;text-align:center}
-</style>
+    .hidden{display:none!important}
+    .error{color:#ef4444;font-size:12px;padding:8px;text-align:center}
+  </style>
 </head>
 <body>
-<div class="header">
-<h1>Agent<b>OS</b> Bridge</h1>
-<span class="version">v1.0</span>
-</div>
+  <div class="header">
+    <h1>Agent<b>OS</b> Bridge</h1>
+    <span class="version">v1.1</span>
+  </div>
 
-<!-- Not logged in -->
-<div id="loginSection" class="login-section">
-<p class="login-desc">Connect your Google account to start syncing your AI's memory to Google Docs.</p>
-<button class="login-btn" id="loginBtn">Sign in with Google</button>
-</div>
+  <!-- Not logged in -->
+  <div id="loginSection" class="login-section">
+    <p class="login-desc">Connect your Google account to start syncing your AI's memory to Google Docs.</p>
+    <button class="login-btn" id="loginBtn">Sign in with Google</button>
+    <div id="loginError" class="error hidden"></div>
+  </div>
 
-<!-- Logged in but no doc -->
-<div id="docSection" class="section hidden">
-<div class="section-title">Connect Your Doc</div>
-<p style="color:#888;font-size:12px;margin-bottom:12px">Paste the URL of your AgentOS Google Doc:</p>
-<div class="doc-input-wrap">
-<input type="url" id="docInput" class="doc-input" placeholder="https://docs.google.com/document/d/...">
-<button class="connect-btn" id="connectDocBtn">Connect</button>
-</div>
-<div id="docError" class="error hidden"></div>
-</div>
+  <!-- Logged in but no doc -->
+  <div id="docSection" class="section hidden">
+    <div class="section-title">Connect Your Doc</div>
+    <p style="color:#888;font-size:12px;margin-bottom:12px">Paste the URL of your AgentOS Google Doc:</p>
+    <div class="doc-input-wrap">
+      <input type="url" id="docUrl" class="doc-input" placeholder="https://docs.google.com/document/d/...">
+      <button class="connect-btn" id="connectDocBtn">Connect</button>
+    </div>
+    <div id="docError" class="error hidden"></div>
+  </div>
 
-<!-- Connected - show status -->
-<div id="statusSection" class="hidden">
-<div class="section">
-<div class="section-title">Connected</div>
-<div class="status-card">
-<div class="status-row">
-<span class="status-label">Doc</span>
-<span class="status-value"><a id="docTitle" href="#" target="_blank">Loading...</a></span>
-</div>
-<div class="status-row">
-<span class="status-label">Status</span>
-<span class="status-value green" id="connStatus">Synced</span>
-</div>
-<div class="status-row">
-<span class="status-label">Priority</span>
-<span class="status-value" id="nextPriority">-</span>
-</div>
-</div>
-</div>
+  <!-- Connected - show status -->
+  <div id="statusSection" class="hidden">
+    <div class="section">
+      <div class="section-title">Connected</div>
+      <div class="status-card">
+        <div class="status-row">
+          <span class="status-label">Status</span>
+          <span class="status-value green" id="statusText">Synced</span>
+        </div>
+      </div>
+    </div>
 
-<div class="section" style="padding-top:0">
-<div class="section-title">TODO (<span id="todoCount">0</span>)</div>
-<ul class="task-list" id="taskList">
-<li class="empty">Loading tasks...</li>
-</ul>
-</div>
+    <div class="section" style="padding-top:0">
+      <div class="section-title">TODO</div>
+      <ul class="task-list" id="todoList">
+        <li class="empty">Loading tasks...</li>
+      </ul>
+    </div>
 
-<div class="section" style="padding-top:0">
-<div class="section-title">Recently Done</div>
-<ul class="task-list" id="doneList">
-<li class="empty">No completed tasks yet</li>
-</ul>
-</div>
-</div>
+    <div class="section" style="padding-top:0">
+      <div class="section-title">Recently Done</div>
+      <ul class="task-list" id="doneList">
+        <li class="empty">No completed tasks yet</li>
+      </ul>
+    </div>
+  </div>
 
-<div class="footer">
-<a href="https://nickberger1993-ai.github.io/agentos/" target="_blank">AgentOS</a>
-<a href="#" id="disconnectBtn">Disconnect</a>
-</div>
+  <div class="footer">
+    <a href="https://nickberger1993-ai.github.io/agentos/" target="_blank">AgentOS</a>
+    <a href="#" id="disconnectBtn">Disconnect</a>
+  </div>
 
-<script src="popup.js"></script>
+  <script src="popup.js"></script>
 </body>
 </html>
