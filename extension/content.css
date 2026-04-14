@@ -1,0 +1,79 @@
+/* AgentOS Bridge - Content Script Styles */
+
+#agentos-badge {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  background: #111;
+  color: #fafafa;
+  padding: 8px 16px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 600;
+  font-family: system-ui, sans-serif;
+  z-index: 99999;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.3);
+  border: 1px solid #222;
+  transition: all 0.3s ease;
+  cursor: default;
+  user-select: none;
+}
+
+#agentos-badge.connected .agentos-dot {
+  background: #22c55e;
+}
+
+#agentos-badge.disconnected .agentos-dot {
+  background: #ef4444;
+}
+
+#agentos-badge.flash {
+  background: #1a1a2e;
+  border-color: #3b82f6;
+}
+
+.agentos-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #888;
+  flex-shrink: 0;
+}
+
+.agentos-dot.success {
+  background: #22c55e;
+}
+
+.agentos-dot.error {
+  background: #ef4444;
+}
+
+.agentos-dot.info {
+  background: #3b82f6;
+}
+
+#agentos-read-btn {
+  position: fixed;
+  bottom: 60px;
+  right: 20px;
+  background: #1a1a2e;
+  color: #fafafa;
+  border: 1px solid #333;
+  padding: 8px 14px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  font-family: system-ui, sans-serif;
+  cursor: pointer;
+  z-index: 99999;
+  transition: all 0.2s;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+}
+
+#agentos-read-btn:hover {
+  background: #3b82f6;
+  border-color: #3b82f6;
+}
