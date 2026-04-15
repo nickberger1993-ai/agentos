@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "AgentOS Bridge",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "description": "Connect any AI chat to your AgentOS Google Doc. Gives your AI persistent memory.",
   "permissions": [
     "storage",
@@ -18,8 +18,7 @@
   "host_permissions": [
     "https://docs.googleapis.com/*",
     "https://www.googleapis.com/*",
-    "https://accounts.google.com/*",
-    "https://oauth2.googleapis.com/*"
+    "https://accounts.google.com/*"
   ],
   "background": {
     "service_worker": "background.js"
@@ -33,10 +32,18 @@
         "https://gemini.google.com/*"
       ],
       "js": ["content.js"],
-      "css": ["content.css"]
+      "css": ["content.css"],
+      "run_at": "document_idle"
     }
   ],
   "action": {
-    "default_popup": "popup.html"
-  }
+    "default_popup": "popup.html",
+    "default_title": "AgentOS Bridge"
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA0"
 }
