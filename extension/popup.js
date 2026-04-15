@@ -1,258 +1,233 @@
 // AgentOS Bridge - Popup Script
 document.addEventListener('DOMContentLoaded', function() {
-    var loginSection = document.getElementById('loginSection');
-    var docSection = document.getElementById('docSection');
-    var statusSection = document.getElementById('statusSection');
-    var loginBtn = document.getElementById('loginBtn');
-    var connectDocBtn = document.getElementById('connectDocBtn');
-    var disconnectBtn = document.getElementById('disconnectBtn');
-    var readDocBtn = document.getElementById('readDocBtn');
+  var loginSection = document.getElementById('loginSection');
+  var docSection = document.getElementById('docSection');
+  var statusSection = document.getElementById('statusSection');
+  var loginBtn = document.getElementById('loginBtn');
+  var connectDocBtn = document.getElementById('connectDocBtn');
+  var disconnectBtn = document.getElementById('disconnectBtn');
+  var readDocBtn = document.getElementById('readDocBtn');
 
-                            // ===========================================
-                            // CHECK CURRENT STATE
-                            // ===========================================
-
-                            function checkStatus() {
-                                  chrome.runtime.sendMessage({ action: 'getStatus' }, function(resp) {
-                                          if (chrome.runtime.lastError) {
-                                                    console.log('[AgentOS Popup] Error getting status:', chrome.runtime.lastError.message);
-                                                    showLogin();
-                                                    return;
-                                          }
-                                          console.log('[AgentOS Popup] Status:', JSON.stringify(resp));
-                                          if (resp && resp.loggedIn && resp.docId) {
-                                                    showStatus(resp);
-                                          } else if (resp && resp.loggedIn) {
-                                                    showDocInput();
-                                          } else {
-                                                    showLogin();
-                                          }
-                                  });
-                            }
-
-                            // ===========================================
-                            // UI STATES
-                            // ===========================================
-
-                            function showLogin() {
-                                  loginSection.style.display = 'block';
-                                  docSection.style.display = 'none';
-                                  statusSection.style.display = 'none';
-                            }
-
-                            function showDocInput() {
-                                  loginSection.style.display = 'none';
-                                  docSection.style.display = 'block';
-                                  statusSection.style.display = 'none';
-                            }
-
-                            function showStatus(data) {
-                                  loginSection.style.display = 'none';
-                                  docSection.style.display = 'none';
-                                  statusSection.style.display = 'block';
-
-      var statusText = document.getElementById('statusText');
-                                  var docIdDisplay = document.getElementById('docIdDisplay');
-
-      if (statusText) {
-              statusText.textContent = 'Connected';
-              statusText.style.color = '#22c55e';
+  // ===========================================
+  // CHECK CURRENT STATE
+  // ===========================================
+  function checkStatus() {
+    chrome.runtime.sendMessage({ action: 'getStatus' }, function(resp) {
+      if (chrome.runtime.lastError) {
+        console.log('[AgentOS Popup] Error getting status:', chrome.runtime.lastError.message);
+        showLogin();
+        return;
       }
-                                  if (docIdDisplay && data.docId) {
-                                          docIdDisplay.textContent = data.docId.substring(0, 20) + '...';
-                                          docIdDisplay.title = data.docId;
-                                  }
+      console.log('[AgentOS Popup] Status:', JSON.stringify(resp));
+      if (resp && resp.loggedIn && resp.docId) {
+        showStatus(resp);
+      } else if (resp && resp.loggedIn) {
+        showDocInput();
+      } else {
+        showLogin();
+      }
+    });
+  }
 
-      // Load tasks from doc
-      loadTasks();
-                            }
+  // ===========================================
+  // UI STATES - use classList for reliable toggling
+  // ===========================================
+  function hideAll() {
+    loginSection.classList.add('hidden');
+    docSection.classList.add('hidden');
+    statusSection.classList.add('hidden');
+  }
 
-                            // ===========================================
-                            // ACTIONS
-                            // ===========================================
+  function showLogin() {
+    hideAll();
+    loginSection.classList.remove('hidden');
+  }
 
-                            loginBtn.addEventListener('click', function() {
-                                  loginBtn.textContent = 'Signing in...';
-                                  loginBtn.disabled = true;
+  function showDocInput() {
+    hideAll();
+    docSection.classList.remove('hidden');
+  }
 
-                                                          chrome.runtime.sendMessage({ action: 'login' }, function(resp) {
-                                                                  if (chrome.runtime.lastError) {
-                                                                            console.log('[AgentOS Popup] Login error:', chrome.runtime.lastError.message);
-                                                                            loginBtn.textContent = 'Sign in with Google';
-                                                                            loginBtn.disabled = false;
-                                                                            var errEl = document.getElementById('loginError');
-                                                                            if (errEl) {
-                                                                                        errEl.textContent = chrome.runtime.lastError.message;
-                                                                                        errEl.classList.remove('hidden');
-                                                                            }
-                                                                            return;
-                                                                  }
-                                                                  if (resp && resp.success) {
-                                                                            showDocInput();
-                                                                  } else {
-                                                                            loginBtn.textContent = 'Sign in with Google';
-                                                                            loginBtn.disabled = false;
-                                                                            var errEl = document.getElementById('loginError');
-                                                                            if (errEl) {
-                                                                                        errEl.textContent = resp ? resp.error : 'Login failed';
-                                                                                        errEl.classList.remove('hidden');
-                                                                            }
-                                                                  }
-                                                          });
-                            });
+  function showStatus(data) {
+    hideAll();
+    statusSection.classList.remove('hidden');
 
-                            connectDocBtn.addEventListener('click', function() {
-                                  var docUrl = document.getElementById('docUrl').value.trim();
+    var statusText = document.getElementById('statusText');
+    var docIdDisplay = document.getElementById('docIdDisplay');
 
-                                                               // Extract doc ID from URL
-                                                               var match = docUrl.match(/\/d\/([a-zA-Z0-9_-]+)/);
-                                  var docId = match ? match[1] : docUrl;
+    if (statusText) {
+      statusText.textContent = 'Connected';
+      statusText.style.color = '#22c55e';
+    }
+    if (docIdDisplay && data.docId) {
+      docIdDisplay.textContent = data.docId.substring(0, 20) + '...';
+      docIdDisplay.title = data.docId;
+    }
+    loadTasks();
+  }
 
-                                                               if (!docId) {
-                                                                       var errEl = document.getElementById('docError');
-                                                                       if (errEl) {
-                                                                                 errEl.textContent = 'Please enter a valid Google Doc URL';
-                                                                                 errEl.classList.remove('hidden');
-                                                                       }
-                                                                       return;
-                                                               }
+  // ===========================================
+  // ACTIONS
+  // ===========================================
+  loginBtn.addEventListener('click', function() {
+    loginBtn.textContent = 'Signing in...';
+    loginBtn.disabled = true;
 
-                                                               console.log('[AgentOS Popup] Connecting doc:', docId);
+    chrome.runtime.sendMessage({ action: 'login' }, function(resp) {
+      if (chrome.runtime.lastError) {
+        console.log('[AgentOS Popup] Login error:', chrome.runtime.lastError.message);
+        loginBtn.textContent = 'Sign in with Google';
+        loginBtn.disabled = false;
+        var errEl = document.getElementById('loginError');
+        if (errEl) {
+          errEl.textContent = chrome.runtime.lastError.message;
+          errEl.classList.remove('hidden');
+        }
+        return;
+      }
+      if (resp && resp.success) {
+        showDocInput();
+      } else {
+        loginBtn.textContent = 'Sign in with Google';
+        loginBtn.disabled = false;
+        var errEl = document.getElementById('loginError');
+        if (errEl) {
+          errEl.textContent = resp ? resp.error : 'Login failed';
+          errEl.classList.remove('hidden');
+        }
+      }
+    });
+  });
 
-                                                               chrome.runtime.sendMessage({ action: 'setDocId', docId: docId }, function(resp) {
-                                                                       if (resp && resp.success) {
-                                                                                 // Notify content script that we're connected
-                                                                         chrome.tabs.query({ active: true, currentWindow: true }, function(tabs) {
-                                                                                     if (tabs[0]) {
-                                                                                                   chrome.tabs.sendMessage(tabs[0].id, { action: 'connected', docId: docId });
-                                                                                     }
-                                                                         });
+  connectDocBtn.addEventListener('click', function() {
+    var docUrl = document.getElementById('docUrl').value.trim();
+    var match = docUrl.match(/\/d\/([a-zA-Z0-9_-]+)/);
+    var docId = match ? match[1] : docUrl;
 
-                                                                         showStatus({ docId: docId });
-                                                                       }
-                                                               });
-                            });
+    if (!docId) {
+      var errEl = document.getElementById('docError');
+      if (errEl) {
+        errEl.textContent = 'Please enter a valid Google Doc URL';
+        errEl.classList.remove('hidden');
+      }
+      return;
+    }
 
-                            disconnectBtn.addEventListener('click', function(e) {
-                                  e.preventDefault();
-                                  chrome.runtime.sendMessage({ action: 'logout' }, function() {
-                                          // Also notify content script
-                                                                   chrome.tabs.query({ active: true, currentWindow: true }, function(tabs) {
-                                                                             if (tabs[0]) {
-                                                                                         chrome.tabs.sendMessage(tabs[0].id, { action: 'disconnected' });
-                                                                             }
-                                                                   });
+    console.log('[AgentOS Popup] Connecting doc:', docId);
+    chrome.runtime.sendMessage({ action: 'setDocId', docId: docId }, function(resp) {
+      if (resp && resp.success) {
+        chrome.tabs.query({ active: true, currentWindow: true }, function(tabs) {
+          if (tabs[0]) {
+            chrome.tabs.sendMessage(tabs[0].id, { action: 'connected', docId: docId });
+          }
+        });
+        showStatus({ docId: docId });
+      }
+    });
+  });
 
-                                                                   showLogin();
-                                  });
-                            });
+  disconnectBtn.addEventListener('click', function(e) {
+    e.preventDefault();
+    chrome.runtime.sendMessage({ action: 'logout' }, function() {
+      chrome.tabs.query({ active: true, currentWindow: true }, function(tabs) {
+        if (tabs[0]) {
+          chrome.tabs.sendMessage(tabs[0].id, { action: 'disconnected' });
+        }
+      });
+      showLogin();
+    });
+  });
 
-                            // Read Doc button in status section
-                            if (readDocBtn) {
-                                  readDocBtn.addEventListener('click', function() {
-                                          readDocBtn.textContent = 'Reading...';
-                                          readDocBtn.disabled = true;
+  if (readDocBtn) {
+    readDocBtn.addEventListener('click', function() {
+      readDocBtn.textContent = 'Reading...';
+      readDocBtn.disabled = true;
 
-                                                                    chrome.runtime.sendMessage({ action: 'readDoc' }, function(resp) {
-                                                                              readDocBtn.textContent = 'Read Doc';
-                                                                              readDocBtn.disabled = false;
+      chrome.runtime.sendMessage({ action: 'readDoc' }, function(resp) {
+        readDocBtn.textContent = 'Read Doc';
+        readDocBtn.disabled = false;
 
-                                                                                                       if (resp && resp.success && resp.text) {
-                                                                                                                   // Try to paste into active tab's chat input
-                                                                                chrome.tabs.query({ active: true, currentWindow: true }, function(tabs) {
-                                                                                              if (tabs[0]) {
-                                                                                                              chrome.tabs.sendMessage(tabs[0].id, {
-                                                                                                                                action: 'pasteText',
-                                                                                                                                text: resp.text
-                                                                                                                });
-                                                                                                }
-                                                                                });
-                                                                                                         } else {
-                                                                                                                   var statusText = document.getElementById('statusText');
-                                                                                                                   if (statusText) {
-                                                                                                                                 statusText.textContent = 'Error: ' + (resp ? resp.error : 'Failed');
-                                                                                                                                 statusText.style.color = '#ef4444';
-                                                                                                                     }
-                                                                                                         }
-                                                                    });
-                                  });
-                            }
+        if (resp && resp.success && resp.text) {
+          chrome.tabs.query({ active: true, currentWindow: true }, function(tabs) {
+            if (tabs[0]) {
+              chrome.tabs.sendMessage(tabs[0].id, { action: 'pasteText', text: resp.text });
+            }
+          });
+        } else {
+          var statusText = document.getElementById('statusText');
+          if (statusText) {
+            statusText.textContent = 'Error: ' + (resp ? resp.error : 'Failed');
+            statusText.style.color = '#ef4444';
+          }
+        }
+      });
+    });
+  }
 
-                            // ===========================================
-                            // LOAD TASKS FROM DOC
-                            // ===========================================
+  // ===========================================
+  // LOAD TASKS FROM DOC
+  // ===========================================
+  function loadTasks() {
+    chrome.runtime.sendMessage({ action: 'readDoc' }, function(resp) {
+      if (resp && resp.success && resp.text) {
+        var todoList = document.getElementById('todoList');
+        var doneList = document.getElementById('doneList');
+        if (!todoList || !doneList) return;
 
-                            function loadTasks() {
-                                  chrome.runtime.sendMessage({ action: 'readDoc' }, function(resp) {
-                                          if (resp && resp.success && resp.text) {
-                                                    var todoList = document.getElementById('todoList');
-                                                    var doneList = document.getElementById('doneList');
+        todoList.innerHTML = '';
+        doneList.innerHTML = '';
 
-                                            if (!todoList || !doneList) return;
+        var lines = resp.text.split('\n');
+        var inTodo = false;
+        var inDone = false;
+        var todoCount = 0;
+        var doneCount = 0;
 
-                                            todoList.innerHTML = '';
-                                                    doneList.innerHTML = '';
+        for (var i = 0; i < lines.length; i++) {
+          var line = lines[i].trim();
 
-                                            var lines = resp.text.split('\n');
-                                                    var inTodo = false;
-                                                    var inDone = false;
-                                                    var todoCount = 0;
-                                                    var doneCount = 0;
+          if (line.indexOf('== TODO ==') !== -1) { inTodo = true; inDone = false; continue; }
+          if (line.indexOf('== DONE ==') !== -1) { inDone = true; inTodo = false; continue; }
+          if (line.indexOf('== ') === 0 && line.indexOf(' ==') !== -1) { inTodo = false; inDone = false; continue; }
 
-                                            for (var i = 0; i < lines.length; i++) {
-                                                        var line = lines[i].trim();
+          if (inTodo && line.indexOf('[ ]') === 0) {
+            var taskText = line.substring(3).trim();
+            var li = document.createElement('li');
+            li.textContent = taskText;
+            li.style.cssText = 'cursor:pointer;padding:6px 0;border-bottom:1px solid #1a1a1a;font-size:12px;color:#ccc';
+            li.title = 'Click to mark done';
+            li.addEventListener('click', (function(t) {
+              return function() {
+                chrome.runtime.sendMessage({ action: 'taskDone', taskText: t });
+                this.style.textDecoration = 'line-through';
+                this.style.opacity = '0.5';
+              };
+            })(taskText));
+            todoList.appendChild(li);
+            todoCount++;
+          }
 
-                                                      if (line.indexOf('== TODO ==') !== -1) { inTodo = true; inDone = false; continue; }
-                                                        if (line.indexOf('== DONE ==') !== -1) { inDone = true; inTodo = false; continue; }
-                                                        if (line.indexOf('== ') === 0 && line.indexOf(' ==') !== -1) { inTodo = false; inDone = false; continue; }
+          if (inDone && line.indexOf('[') === 0 && doneCount < 5) {
+            var li2 = document.createElement('li');
+            li2.textContent = line;
+            li2.style.cssText = 'opacity:0.6;padding:6px 0;border-bottom:1px solid #1a1a1a;font-size:12px;color:#888';
+            doneList.appendChild(li2);
+            doneCount++;
+          }
+        }
 
-                                                      if (inTodo && line.indexOf('[ ]') === 0) {
-                                                                    var taskText = line.substring(3).trim();
-                                                                    var li = document.createElement('li');
-                                                                    li.textContent = taskText;
-                                                                    li.style.cursor = 'pointer';
-                                                                    li.style.padding = '6px 0';
-                                                                    li.style.borderBottom = '1px solid #1a1a1a';
-                                                                    li.style.fontSize = '12px';
-                                                                    li.style.color = '#ccc';
-                                                                    li.title = 'Click to mark done';
-                                                                    li.addEventListener('click', (function(t) {
-                                                                                    return function() {
-                                                                                                      chrome.runtime.sendMessage({ action: 'taskDone', taskText: t });
-                                                                                                      this.style.textDecoration = 'line-through';
-                                                                                                      this.style.opacity = '0.5';
-                                                                                      };
-                                                                    })(taskText));
-                                                                    todoList.appendChild(li);
-                                                                    todoCount++;
-                                                      }
+        if (todoCount === 0) {
+          todoList.innerHTML = '<li style="color:#555;font-size:12px;text-align:center;padding:16px">No open tasks</li>';
+        }
+        if (doneCount === 0) {
+          doneList.innerHTML = '<li style="color:#555;font-size:12px;text-align:center;padding:16px">No completed tasks yet</li>';
+        }
+      } else {
+        console.log('[AgentOS Popup] Failed to load tasks:', resp ? resp.error : 'no response');
+      }
+    });
+  }
 
-                                                      if (inDone && line.indexOf('[') === 0 && doneCount < 5) {
-                                                                    var doneText = line;
-                                                                    var li2 = document.createElement('li');
-                                                                    li2.textContent = doneText;
-                                                                    li2.style.opacity = '0.6';
-                                                                    li2.style.padding = '6px 0';
-                                                                    li2.style.borderBottom = '1px solid #1a1a1a';
-                                                                    li2.style.fontSize = '12px';
-                                                                    li2.style.color = '#888';
-                                                                    doneList.appendChild(li2);
-                                                                    doneCount++;
-                                                      }
-                                            }
-
-                                            if (todoCount === 0) {
-                                                        todoList.innerHTML = '<li style="color:#555;font-size:12px;text-align:center;padding:16px">No open tasks</li>';
-                                            }
-                                                    if (doneCount === 0) {
-                                                                doneList.innerHTML = '<li style="color:#555;font-size:12px;text-align:center;padding:16px">No completed tasks yet</li>';
-                                                    }
-                                          } else {
-                                                    console.log('[AgentOS Popup] Failed to load tasks:', resp ? resp.error : 'no response');
-                                          }
-                                  });
-                            }
-
-                            // Start
-                            checkStatus();
+  // Start
+  checkStatus();
 });
