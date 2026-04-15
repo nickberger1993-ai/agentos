@@ -1,6 +1,5 @@
-// AgentOS Bridge - Content Script
-// Injects into AI chat pages (Claude, ChatGPT, Gemini)
-// Monitors AI output for AgentOS commands and executes them
+// AgentOS Bridge - Content Script v1.5.0
+// Monitors AI output for commands, manages auto-loop agent cycle
 
 (function() {
   'use strict';
@@ -8,7 +7,15 @@
   var processedNodes = new WeakSet();
   var statusBadge = null;
   var readDocBtn = null;
+  var loopBtn = null;
   var isConnected = false;
+  var autoLoopEnabled = false;
+  var loopTimer = null;
+  var loopCount = 0;
+  var MAX_LOOPS = 50;
+  var LOOP_DELAY = 5000;
+  var lastResponseTime = 0;
+  var waitingForResponse = false;
 
   // =========================================
   // UI ELEMENTS
@@ -24,25 +31,44 @@
     readDocBtn.id = 'agentos-read-btn';
     readDocBtn.textContent = 'Read Doc';
     readDocBtn.addEventListener('click', function() {
-      readDocBtn.textContent = 'Reading...';
-      readDocBtn.disabled = true;
-      chrome.runtime.sendMessage({ action: 'readDoc' }, function(resp) {
-        readDocBtn.textContent = 'Read Doc';
-        readDocBtn.disabled = false;
-        if (resp && resp.success && resp.text) {
-          var input = findChatInput();
-          if (input) {
-            insertTextIntoChat(input, resp.text);
-            showNotification('Doc pasted into chat!');
-          } else {
-            showNotification('Could not find chat input');
-          }
-        } else {
-          showNotification(resp ? resp.error : 'Failed to read doc');
-        }
-      });
+      doReadAndPaste();
     });
     document.body.appendChild(readDocBtn);
+
+    // Auto-loop toggle button
+    loopBtn = document.createElement('button');
+    loopBtn.id = 'agentos-loop-btn';
+    loopBtn.textContent = 'Auto Loop: OFF';
+    loopBtn.style.cssText = 'position:fixed;bottom:100px;right:20px;z-index:99999;padding:8px 16px;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;background:#333;color:#888;transition:all 0.2s;';
+    loopBtn.addEventListener('click', function() {
+      toggleAutoLoop();
+    });
+    document.body.appendChild(loopBtn);
+  }
+
+  function updateLoopButton() {
+    if (!loopBtn) return;
+    if (autoLoopEnabled) {
+      loopBtn.textContent = 'Auto Loop: ON (' + loopCount + ')';
+      loopBtn.style.background = '#00ff88';
+      loopBtn.style.color = '#000';
+    } else {
+      loopBtn.textContent = 'Auto Loop: OFF';
+      loopBtn.style.background = '#333';
+      loopBtn.style.color = '#888';
+    }
+  }
+
+  function toggleAutoLoop() {
+    autoLoopEnabled = !autoLoopEnabled;
+    loopCount = 0;
+    if (!autoLoopEnabled && loopTimer) {
+      clearTimeout(loopTimer);
+      loopTimer = null;
+      waitingForResponse = false;
+    }
+    updateLoopButton();
+    showNotification(autoLoopEnabled ? 'Auto-loop ENABLED' : 'Auto-loop DISABLED');
   }
 
   function updateBadgeStatus(connected) {
@@ -69,9 +95,9 @@
 
   function findChatInput() {
     return document.querySelector('#prompt-textarea') ||
-           document.querySelector('[contenteditable="true"]') ||
-           document.querySelector('textarea[data-id]') ||
-           document.querySelector('textarea');
+      document.querySelector('[contenteditable="true"]') ||
+      document.querySelector('textarea[data-id]') ||
+      document.querySelector('textarea');
   }
 
   function insertTextIntoChat(input, text) {
@@ -90,55 +116,183 @@
     }
   }
 
+  function clickSendButton() {
+    // Try to find and click the send button
+    var sendBtn = document.querySelector('[data-testid="send-button"]') ||
+      document.querySelector('button[aria-label="Send prompt"]') ||
+      document.querySelector('button[aria-label="Send"]') ||
+      document.querySelector('form button[type="submit"]');
+
+    if (!sendBtn) {
+      // ChatGPT specific: find the send button near the textarea
+      var buttons = document.querySelectorAll('button');
+      for (var i = 0; i < buttons.length; i++) {
+        var btn = buttons[i];
+        if (btn.querySelector('svg') && btn.closest('form')) {
+          var rect = btn.getBoundingClientRect();
+          if (rect.bottom > window.innerHeight - 200) {
+            sendBtn = btn;
+            break;
+          }
+        }
+      }
+    }
+
+    if (sendBtn && !sendBtn.disabled) {
+      sendBtn.click();
+      return true;
+    }
+
+    // Fallback: press Enter
+    var input = findChatInput();
+    if (input) {
+      input.dispatchEvent(new KeyboardEvent('keydown', {
+        key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true
+      }));
+      return true;
+    }
+    return false;
+  }
+
+  // =========================================
+  // READ DOC AND PASTE
+  // =========================================
+
+  function doReadAndPaste(autoSend) {
+    if (readDocBtn) {
+      readDocBtn.textContent = 'Reading...';
+      readDocBtn.disabled = true;
+    }
+    chrome.runtime.sendMessage({ action: 'readDoc' }, function(resp) {
+      if (readDocBtn) {
+        readDocBtn.textContent = 'Read Doc';
+        readDocBtn.disabled = false;
+      }
+      if (resp && resp.success && resp.text) {
+        var input = findChatInput();
+        if (input) {
+          insertTextIntoChat(input, resp.text);
+          showNotification('Doc pasted into chat!');
+          if (autoSend) {
+            // Small delay to let the UI update, then send
+            setTimeout(function() {
+              var sent = clickSendButton();
+              if (sent) {
+                showNotification('Auto-sent! Waiting for response...');
+                waitingForResponse = true;
+                lastResponseTime = Date.now();
+              } else {
+                showNotification('Could not auto-send. Please send manually.');
+                waitingForResponse = false;
+              }
+            }, 1000);
+          }
+        } else {
+          showNotification('Could not find chat input');
+        }
+      } else {
+        showNotification(resp ? resp.error : 'Failed to read doc');
+        // If auto-loop, stop on error
+        if (autoLoopEnabled) {
+          autoLoopEnabled = false;
+          updateLoopButton();
+          showNotification('Auto-loop stopped due to error');
+        }
+      }
+    });
+  }
+
+  // =========================================
+  // AUTO-LOOP ENGINE
+  // =========================================
+
+  function scheduleNextLoop() {
+    if (!autoLoopEnabled) return;
+    if (loopCount >= MAX_LOOPS) {
+      autoLoopEnabled = false;
+      updateLoopButton();
+      showNotification('Auto-loop reached max (' + MAX_LOOPS + '). Stopped.');
+      return;
+    }
+
+    showNotification('Next loop in ' + (LOOP_DELAY / 1000) + 's...');
+    loopTimer = setTimeout(function() {
+      loopCount++;
+      updateLoopButton();
+      doReadAndPaste(true); // read doc and auto-send
+    }, LOOP_DELAY);
+  }
+
+  function onAllTasksDone() {
+    autoLoopEnabled = false;
+    if (loopTimer) clearTimeout(loopTimer);
+    loopTimer = null;
+    waitingForResponse = false;
+    updateLoopButton();
+    showNotification('ALL TASKS COMPLETE! Agent stopped.');
+  }
+
   // =========================================
   // COMMAND SCANNER - only scans AI responses
   // =========================================
 
   function isInsideAssistantMessage(node) {
-    // Walk up the DOM to check if this node is inside an AI response
     var el = node;
     while (el && el !== document.body) {
-      // ChatGPT
       if (el.getAttribute && el.getAttribute('data-message-author-role') === 'assistant') return true;
-      // Claude
       if (el.classList && el.classList.contains('font-claude-message')) return true;
-      // Gemini
       if (el.getAttribute && el.getAttribute('data-content-type') === 'response') return true;
-      // Generic: response containers often have these classes
-      if (el.classList && (el.classList.contains('response-content') || el.classList.contains('bot-message') || el.classList.contains('assistant-message'))) return true;
+      if (el.classList && (el.classList.contains('response-content') ||
+        el.classList.contains('bot-message') ||
+        el.classList.contains('assistant-message'))) return true;
       el = el.parentElement;
     }
     return false;
   }
 
+  var pendingTaskActions = 0;
+
   function scanNode(node) {
     if (processedNodes.has(node)) return;
-
-    // CRITICAL: Only scan nodes inside AI/assistant responses
     if (!isInsideAssistantMessage(node)) return;
 
     var text = node.textContent || '';
 
-    // Skip generic/template text
+    // Skip template text
     if (text.indexOf('exact task text') !== -1) return;
     if (text.indexOf('new task description') !== -1) return;
+    if (text.indexOf('task name | reason') !== -1) return;
 
-    var taskDoneMatch = text.match(/\[TASK_DONE:\s*(.+?)\]/);
-    if (taskDoneMatch) {
+    // TASK_DONE
+    var taskDoneRe = /\[TASK_DONE:\s*(.+?)\]/g;
+    var match;
+    while ((match = taskDoneRe.exec(text)) !== null) {
       processedNodes.add(node);
-      var taskText = taskDoneMatch[1].trim();
+      var taskText = match[1].trim();
+      pendingTaskActions++;
       showNotification('Done: ' + taskText.substring(0, 40) + '...');
-      chrome.runtime.sendMessage({ action: 'taskDone', taskText: taskText }, function(resp) {
-        if (resp && resp.success) {
-          showNotification('Task marked done in doc!');
-        }
-      });
+      (function(tt) {
+        chrome.runtime.sendMessage({ action: 'taskDone', taskText: tt }, function(resp) {
+          pendingTaskActions--;
+          if (resp && resp.success) {
+            showNotification('Moved to DONE: ' + tt.substring(0, 30));
+            // Check if all tasks complete
+            if (resp.counts && resp.counts.todo === 0) {
+              onAllTasksDone();
+            } else if (autoLoopEnabled && pendingTaskActions === 0) {
+              // All pending task updates done, schedule next loop
+              scheduleNextLoop();
+            }
+          }
+        });
+      })(taskText);
     }
 
-    var addTaskMatch = text.match(/\[ADD_TASK:\s*(.+?)\]/);
-    if (addTaskMatch) {
+    // ADD_TASK
+    var addTaskRe = /\[ADD_TASK:\s*(.+?)\]/g;
+    while ((match = addTaskRe.exec(text)) !== null) {
       processedNodes.add(node);
-      var newTask = addTaskMatch[1].trim();
+      var newTask = match[1].trim();
       showNotification('Adding: ' + newTask.substring(0, 40) + '...');
       chrome.runtime.sendMessage({ action: 'addTask', taskText: newTask }, function(resp) {
         if (resp && resp.success) {
@@ -147,12 +301,29 @@
       });
     }
 
-    var skipMatch = text.match(/\[SKIP:\s*(.+?)\]/);
-    if (skipMatch) {
+    // SKIP
+    var skipRe = /\[SKIP:\s*(.+?)\]/g;
+    while ((match = skipRe.exec(text)) !== null) {
       processedNodes.add(node);
-      var skipInfo = skipMatch[1].trim();
-      showNotification('Skipped: ' + skipInfo.substring(0, 40) + '...');
-      chrome.runtime.sendMessage({ action: 'appendToDoc', text: '\n[SKIPPED] ' + skipInfo });
+      var skipInfo = match[1].trim();
+      var parts = skipInfo.split('|');
+      var skipTask = parts[0].trim();
+      var skipReason = parts.length > 1 ? parts[1].trim() : 'no reason given';
+      pendingTaskActions++;
+      showNotification('Skipped: ' + skipTask.substring(0, 40));
+      (function(st, sr) {
+        chrome.runtime.sendMessage({ action: 'taskSkip', taskText: st, reason: sr }, function(resp) {
+          pendingTaskActions--;
+          if (resp && resp.success) {
+            showNotification('Moved to SKIPPED: ' + st.substring(0, 30));
+            if (resp.counts && resp.counts.todo === 0) {
+              onAllTasksDone();
+            } else if (autoLoopEnabled && pendingTaskActions === 0) {
+              scheduleNextLoop();
+            }
+          }
+        });
+      })(skipTask, skipReason);
     }
   }
 
@@ -220,4 +391,5 @@
   } else {
     init();
   }
+
 })();
