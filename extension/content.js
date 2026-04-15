@@ -1,10 +1,13 @@
-// AgentOS Bridge - Content Script v1.5.0
+// AgentOS Bridge - Content Script v1.5.1
 // Monitors AI output for commands, manages auto-loop agent cycle
+// Fixes: dedup TASK_DONE detection, improved scanning
 
 (function() {
   'use strict';
 
   var processedNodes = new WeakSet();
+  var processedTasks = {};  // track task text -> timestamp to prevent duplicates
+  var DEDUP_WINDOW = 30000; // 30 second window for dedup
   var statusBadge = null;
   var readDocBtn = null;
   var loopBtn = null;
@@ -14,8 +17,21 @@
   var loopCount = 0;
   var MAX_LOOPS = 50;
   var LOOP_DELAY = 5000;
-  var lastResponseTime = 0;
   var waitingForResponse = false;
+
+  // =========================================
+  // DEDUP HELPER
+  // =========================================
+
+  function isDuplicate(type, taskText) {
+    var key = type + ':' + taskText.trim().toLowerCase();
+    var now = Date.now();
+    if (processedTasks[key] && (now - processedTasks[key]) < DEDUP_WINDOW) {
+      return true; // already processed recently
+    }
+    processedTasks[key] = now;
+    return false;
+  }
 
   // =========================================
   // UI ELEMENTS
@@ -35,7 +51,6 @@
     });
     document.body.appendChild(readDocBtn);
 
-    // Auto-loop toggle button
     loopBtn = document.createElement('button');
     loopBtn.id = 'agentos-loop-btn';
     loopBtn.textContent = 'Auto Loop: OFF';
@@ -117,14 +132,12 @@
   }
 
   function clickSendButton() {
-    // Try to find and click the send button
     var sendBtn = document.querySelector('[data-testid="send-button"]') ||
       document.querySelector('button[aria-label="Send prompt"]') ||
       document.querySelector('button[aria-label="Send"]') ||
       document.querySelector('form button[type="submit"]');
 
     if (!sendBtn) {
-      // ChatGPT specific: find the send button near the textarea
       var buttons = document.querySelectorAll('button');
       for (var i = 0; i < buttons.length; i++) {
         var btn = buttons[i];
@@ -143,7 +156,6 @@
       return true;
     }
 
-    // Fallback: press Enter
     var input = findChatInput();
     if (input) {
       input.dispatchEvent(new KeyboardEvent('keydown', {
@@ -174,13 +186,11 @@
           insertTextIntoChat(input, resp.text);
           showNotification('Doc pasted into chat!');
           if (autoSend) {
-            // Small delay to let the UI update, then send
             setTimeout(function() {
               var sent = clickSendButton();
               if (sent) {
                 showNotification('Auto-sent! Waiting for response...');
                 waitingForResponse = true;
-                lastResponseTime = Date.now();
               } else {
                 showNotification('Could not auto-send. Please send manually.');
                 waitingForResponse = false;
@@ -192,7 +202,6 @@
         }
       } else {
         showNotification(resp ? resp.error : 'Failed to read doc');
-        // If auto-loop, stop on error
         if (autoLoopEnabled) {
           autoLoopEnabled = false;
           updateLoopButton();
@@ -219,7 +228,9 @@
     loopTimer = setTimeout(function() {
       loopCount++;
       updateLoopButton();
-      doReadAndPaste(true); // read doc and auto-send
+      // Clear dedup cache between loops
+      processedTasks = {};
+      doReadAndPaste(true);
     }, LOOP_DELAY);
   }
 
@@ -262,6 +273,7 @@
     if (text.indexOf('exact task text') !== -1) return;
     if (text.indexOf('new task description') !== -1) return;
     if (text.indexOf('task name | reason') !== -1) return;
+    if (text.indexOf('task text from the TODO') !== -1) return;
 
     // TASK_DONE
     var taskDoneRe = /\[TASK_DONE:\s*(.+?)\]/g;
@@ -269,6 +281,12 @@
     while ((match = taskDoneRe.exec(text)) !== null) {
       processedNodes.add(node);
       var taskText = match[1].trim();
+
+      // DEDUP: skip if we already processed this exact task recently
+      if (isDuplicate('done', taskText)) {
+        continue;
+      }
+
       pendingTaskActions++;
       showNotification('Done: ' + taskText.substring(0, 40) + '...');
       (function(tt) {
@@ -276,11 +294,9 @@
           pendingTaskActions--;
           if (resp && resp.success) {
             showNotification('Moved to DONE: ' + tt.substring(0, 30));
-            // Check if all tasks complete
             if (resp.counts && resp.counts.todo === 0) {
               onAllTasksDone();
             } else if (autoLoopEnabled && pendingTaskActions === 0) {
-              // All pending task updates done, schedule next loop
               scheduleNextLoop();
             }
           }
@@ -293,6 +309,7 @@
     while ((match = addTaskRe.exec(text)) !== null) {
       processedNodes.add(node);
       var newTask = match[1].trim();
+      if (isDuplicate('add', newTask)) continue;
       showNotification('Adding: ' + newTask.substring(0, 40) + '...');
       chrome.runtime.sendMessage({ action: 'addTask', taskText: newTask }, function(resp) {
         if (resp && resp.success) {
@@ -309,6 +326,7 @@
       var parts = skipInfo.split('|');
       var skipTask = parts[0].trim();
       var skipReason = parts.length > 1 ? parts[1].trim() : 'no reason given';
+      if (isDuplicate('skip', skipTask)) continue;
       pendingTaskActions++;
       showNotification('Skipped: ' + skipTask.substring(0, 40));
       (function(st, sr) {
