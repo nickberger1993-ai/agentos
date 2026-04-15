@@ -10,6 +10,10 @@
   var readDocBtn = null;
   var isConnected = false;
 
+  // =========================================
+  // UI ELEMENTS
+  // =========================================
+
   function createBadge() {
     statusBadge = document.createElement('div');
     statusBadge.id = 'agentos-badge';
@@ -18,16 +22,18 @@
 
     readDocBtn = document.createElement('button');
     readDocBtn.id = 'agentos-read-btn';
-    readDocBtn.innerHTML = 'Read Doc';
+    readDocBtn.textContent = 'Read Doc';
     readDocBtn.addEventListener('click', function() {
       readDocBtn.textContent = 'Reading...';
+      readDocBtn.disabled = true;
       chrome.runtime.sendMessage({ action: 'readDoc' }, function(resp) {
         readDocBtn.textContent = 'Read Doc';
+        readDocBtn.disabled = false;
         if (resp && resp.success && resp.text) {
           var input = findChatInput();
           if (input) {
             insertTextIntoChat(input, resp.text);
-            showNotification('Doc content pasted into chat!');
+            showNotification('Doc pasted into chat!');
           } else {
             showNotification('Could not find chat input');
           }
@@ -49,12 +55,23 @@
     }
   }
 
+  function showNotification(msg) {
+    var notif = document.createElement('div');
+    notif.className = 'agentos-notification';
+    notif.textContent = msg;
+    document.body.appendChild(notif);
+    setTimeout(function() { notif.remove(); }, 3000);
+  }
+
+  // =========================================
+  // CHAT INPUT HELPERS
+  // =========================================
+
   function findChatInput() {
-    var el = document.querySelector('#prompt-textarea') ||
-             document.querySelector('[contenteditable="true"]') ||
-             document.querySelector('textarea[data-id]') ||
-             document.querySelector('textarea');
-    return el;
+    return document.querySelector('#prompt-textarea') ||
+           document.querySelector('[contenteditable="true"]') ||
+           document.querySelector('textarea[data-id]') ||
+           document.querySelector('textarea');
   }
 
   function insertTextIntoChat(input, text) {
@@ -73,28 +90,47 @@
     }
   }
 
-  function showNotification(msg) {
-    var notif = document.createElement('div');
-    notif.className = 'agentos-notification';
-    notif.textContent = msg;
-    document.body.appendChild(notif);
-    setTimeout(function() { notif.remove(); }, 3000);
+  // =========================================
+  // COMMAND SCANNER - only scans AI responses
+  // =========================================
+
+  function isInsideAssistantMessage(node) {
+    // Walk up the DOM to check if this node is inside an AI response
+    var el = node;
+    while (el && el !== document.body) {
+      // ChatGPT
+      if (el.getAttribute && el.getAttribute('data-message-author-role') === 'assistant') return true;
+      // Claude
+      if (el.classList && el.classList.contains('font-claude-message')) return true;
+      // Gemini
+      if (el.getAttribute && el.getAttribute('data-content-type') === 'response') return true;
+      // Generic: response containers often have these classes
+      if (el.classList && (el.classList.contains('response-content') || el.classList.contains('bot-message') || el.classList.contains('assistant-message'))) return true;
+      el = el.parentElement;
+    }
+    return false;
   }
 
   function scanNode(node) {
     if (processedNodes.has(node)) return;
+
+    // CRITICAL: Only scan nodes inside AI/assistant responses
+    if (!isInsideAssistantMessage(node)) return;
+
     var text = node.textContent || '';
+
+    // Skip generic/template text
+    if (text.indexOf('exact task text') !== -1) return;
+    if (text.indexOf('new task description') !== -1) return;
 
     var taskDoneMatch = text.match(/\[TASK_DONE:\s*(.+?)\]/);
     if (taskDoneMatch) {
       processedNodes.add(node);
       var taskText = taskDoneMatch[1].trim();
-      showNotification('Marking done: ' + taskText);
+      showNotification('Done: ' + taskText.substring(0, 40) + '...');
       chrome.runtime.sendMessage({ action: 'taskDone', taskText: taskText }, function(resp) {
         if (resp && resp.success) {
           showNotification('Task marked done in doc!');
-        } else {
-          showNotification('Failed: ' + (resp ? resp.error : 'unknown'));
         }
       });
     }
@@ -103,28 +139,26 @@
     if (addTaskMatch) {
       processedNodes.add(node);
       var newTask = addTaskMatch[1].trim();
-      showNotification('Adding task: ' + newTask);
+      showNotification('Adding: ' + newTask.substring(0, 40) + '...');
       chrome.runtime.sendMessage({ action: 'addTask', taskText: newTask }, function(resp) {
         if (resp && resp.success) {
           showNotification('Task added to doc!');
-        } else {
-          showNotification('Failed: ' + (resp ? resp.error : 'unknown'));
         }
       });
     }
 
-    var agentosMatch = text.match(/\[AGENTOS:(\w+):([^\]]+)\]/);
-    if (agentosMatch) {
+    var skipMatch = text.match(/\[SKIP:\s*(.+?)\]/);
+    if (skipMatch) {
       processedNodes.add(node);
-      var action = agentosMatch[1];
-      var payload = agentosMatch[2];
-      showNotification('AgentOS command: ' + action);
-      chrome.runtime.sendMessage({
-        action: 'appendToDoc',
-        text: '\n[' + new Date().toLocaleDateString() + '] AI Command: ' + action + ' - ' + payload
-      });
+      var skipInfo = skipMatch[1].trim();
+      showNotification('Skipped: ' + skipInfo.substring(0, 40) + '...');
+      chrome.runtime.sendMessage({ action: 'appendToDoc', text: '\n[SKIPPED] ' + skipInfo });
     }
   }
+
+  // =========================================
+  // MUTATION OBSERVER
+  // =========================================
 
   var observer = new MutationObserver(function(mutations) {
     if (!isConnected) return;
@@ -143,10 +177,14 @@
     }
   });
 
+  // =========================================
+  // MESSAGE HANDLER
+  // =========================================
+
   chrome.runtime.onMessage.addListener(function(msg, sender, sendResponse) {
     if (msg.action === 'connected') {
       updateBadgeStatus(true);
-      showNotification('AgentOS connected to doc!');
+      showNotification('AgentOS connected!');
     } else if (msg.action === 'disconnected') {
       updateBadgeStatus(false);
       showNotification('AgentOS disconnected');
@@ -154,12 +192,16 @@
       var input = findChatInput();
       if (input) {
         insertTextIntoChat(input, msg.text);
-        showNotification('Doc content pasted into chat!');
+        showNotification('Doc pasted into chat!');
       } else {
         showNotification('Could not find chat input');
       }
     }
   });
+
+  // =========================================
+  // INIT
+  // =========================================
 
   function init() {
     createBadge();
