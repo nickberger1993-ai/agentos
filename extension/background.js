@@ -1,5 +1,6 @@
-// AgentOS Bridge - Background Service Worker v1.5.0
+// AgentOS Bridge - Background Service Worker v1.5.1
 // Handles Google OAuth, reads/writes Google Docs, manages task state
+// Fixes: replaceAllText fallback for task deletion
 
 const CLIENT_ID = '930312309217-9tgvu1i7o3hrogrmnooplbpgminq54m9.apps.googleusercontent.com';
 const SCOPES = 'https://www.googleapis.com/auth/documents https://www.googleapis.com/auth/spreadsheets';
@@ -27,7 +28,6 @@ function storeToken(token, expiresIn) {
 
 async function launchOAuth() {
   const redirectUrl = chrome.identity.getRedirectURL();
-  console.log('[AgentOS] Redirect URL:', redirectUrl);
   const authUrl = 'https://accounts.google.com/o/oauth2/v2/auth'
     + '?client_id=' + encodeURIComponent(CLIENT_ID)
     + '&redirect_uri=' + encodeURIComponent(redirectUrl)
@@ -39,25 +39,17 @@ async function launchOAuth() {
       { url: authUrl, interactive: true },
       (responseUrl) => {
         if (chrome.runtime.lastError) {
-          console.error('[AgentOS] Auth error:', chrome.runtime.lastError.message);
           reject(new Error(chrome.runtime.lastError.message));
           return;
         }
-        if (!responseUrl) {
-          console.error('[AgentOS] No response URL');
-          reject(new Error('No response URL'));
-          return;
-        }
-        console.log('[AgentOS] Got response URL, parsing token...');
+        if (!responseUrl) { reject(new Error('No response URL')); return; }
         const url = new URL(responseUrl.replace('#', '?'));
         const token = url.searchParams.get('access_token');
         const expiresIn = parseInt(url.searchParams.get('expires_in') || '3600');
         if (token) {
           storeToken(token, expiresIn);
-          console.log('[AgentOS] Token stored successfully');
           resolve(token);
         } else {
-          console.error('[AgentOS] No token in response');
           reject(new Error('No token in response'));
         }
       }
@@ -79,16 +71,11 @@ async function getAuthToken(interactive) {
 async function readDoc(docId) {
   if (!docId) throw new Error('No doc connected - please connect a doc first');
   const token = await getAuthToken(false);
-  console.log('[AgentOS] Reading doc:', docId);
   const resp = await fetch(
     'https://docs.googleapis.com/v1/documents/' + docId,
     { headers: { 'Authorization': 'Bearer ' + token } }
   );
-  if (!resp.ok) {
-    const errText = await resp.text().catch(() => '');
-    console.error('[AgentOS] Doc read failed:', resp.status, errText);
-    throw new Error('Failed to read doc: ' + resp.status);
-  }
+  if (!resp.ok) throw new Error('Failed to read doc: ' + resp.status);
   const doc = await resp.json();
   let text = '';
   if (doc.body && doc.body.content) {
@@ -100,7 +87,6 @@ async function readDoc(docId) {
       }
     }
   }
-  console.log('[AgentOS] Doc read success, length:', text.length);
   return text;
 }
 
@@ -193,82 +179,108 @@ function countTasks(text) {
 
 async function markTaskDone(docId, taskText) {
   console.log('[AgentOS] markTaskDone:', taskText);
-  const doc = await readDocRaw(docId);
   const timestamp = new Date().toLocaleDateString('en-US', {
     month: 'numeric', day: 'numeric', year: 'numeric'
   });
-  const todoLine = findLineRange(doc, '[ ] ' + taskText);
-  const doneInsert = findSectionInsertPoint(doc, '== DONE ==');
-  const requests = [];
+  const doneEntry = '[x] ' + taskText + ' (' + timestamp + ')';
 
-  if (todoLine) {
-    requests.push({
-      deleteContentRange: {
-        range: { startIndex: todoLine.startIndex, endIndex: todoLine.endIndex }
-      }
-    });
-  }
-
-  if (doneInsert) {
-    let adj = doneInsert;
-    if (todoLine && todoLine.startIndex < doneInsert) {
-      adj -= (todoLine.endIndex - todoLine.startIndex);
-    }
-    requests.push({
-      insertText: {
-        location: { index: adj },
-        text: '[x] ' + taskText + ' (' + timestamp + ')\n'
-      }
-    });
-  } else {
-    requests.push({
+  // Strategy: use replaceAllText to handle the TODO->DONE move
+  // Step 1: Replace "[ ] taskText" with nothing (delete from TODO)
+  // Step 2: Insert into DONE section
+  try {
+    // First try exact replaceAllText to remove from TODO
+    await batchUpdateDoc(docId, [{
       replaceAllText: {
-        containsText: { text: '[ ] ' + taskText, matchCase: true },
-        replaceText: '[x] ' + taskText + ' (' + timestamp + ')'
+        containsText: { text: '[ ] ' + taskText + '\n', matchCase: false },
+        replaceText: ''
       }
-    });
+    }]);
+  } catch (e) {
+    // If that fails, try without newline
+    try {
+      await batchUpdateDoc(docId, [{
+        replaceAllText: {
+          containsText: { text: '[ ] ' + taskText, matchCase: false },
+          replaceText: ''
+        }
+      }]);
+    } catch (e2) {
+      console.error('[AgentOS] Could not remove TODO item:', e2.message);
+    }
   }
 
-  if (requests.length > 0) {
-    await batchUpdateDoc(docId, requests);
+  // Step 2: Insert into DONE section
+  try {
+    const doc = await readDocRaw(docId);
+    const doneInsert = findSectionInsertPoint(doc, '== DONE ==');
+    if (doneInsert) {
+      await batchUpdateDoc(docId, [{
+        insertText: {
+          location: { index: doneInsert },
+          text: doneEntry + '\n'
+        }
+      }]);
+    } else {
+      // Fallback: append to end
+      const fullText = getFullText(doc);
+      const endIdx = doc.body.content[doc.body.content.length - 1].endIndex - 1;
+      await batchUpdateDoc(docId, [{
+        insertText: {
+          location: { index: endIdx },
+          text: '\n' + doneEntry
+        }
+      }]);
+    }
+  } catch (e) {
+    console.error('[AgentOS] Could not insert DONE entry:', e.message);
   }
+
   await updateDocStatus(docId);
   return true;
 }
 
 async function markTaskSkipped(docId, taskText, reason) {
   console.log('[AgentOS] markTaskSkipped:', taskText, reason);
-  const doc = await readDocRaw(docId);
   const timestamp = new Date().toLocaleDateString('en-US', {
     month: 'numeric', day: 'numeric', year: 'numeric'
   });
-  const todoLine = findLineRange(doc, '[ ] ' + taskText);
-  const doneInsert = findSectionInsertPoint(doc, '== DONE ==');
-  const requests = [];
+  const skipEntry = '[SKIPPED] ' + taskText + ' | ' + reason + ' (' + timestamp + ')';
 
-  if (todoLine) {
-    requests.push({
-      deleteContentRange: {
-        range: { startIndex: todoLine.startIndex, endIndex: todoLine.endIndex }
+  try {
+    await batchUpdateDoc(docId, [{
+      replaceAllText: {
+        containsText: { text: '[ ] ' + taskText + '\n', matchCase: false },
+        replaceText: ''
       }
-    });
-  }
-  if (doneInsert) {
-    let adj = doneInsert;
-    if (todoLine && todoLine.startIndex < doneInsert) {
-      adj -= (todoLine.endIndex - todoLine.startIndex);
+    }]);
+  } catch (e) {
+    try {
+      await batchUpdateDoc(docId, [{
+        replaceAllText: {
+          containsText: { text: '[ ] ' + taskText, matchCase: false },
+          replaceText: ''
+        }
+      }]);
+    } catch (e2) {
+      console.error('[AgentOS] Could not remove TODO item:', e2.message);
     }
-    requests.push({
-      insertText: {
-        location: { index: adj },
-        text: '[SKIPPED] ' + taskText + ' | ' + reason + ' (' + timestamp + ')\n'
-      }
-    });
   }
 
-  if (requests.length > 0) {
-    await batchUpdateDoc(docId, requests);
+  try {
+    const doc = await readDocRaw(docId);
+    const doneInsert = findSectionInsertPoint(doc, '== DONE ==');
+    if (doneInsert) {
+      await batchUpdateDoc(docId, [{
+        insertText: {
+          location: { index: doneInsert },
+          text: skipEntry + '\n'
+        }
+      }]);
+    }
+  } catch (e) {
+    console.error('[AgentOS] Could not insert SKIP entry:', e.message);
   }
+
   await updateDocStatus(docId);
   return true;
 }
@@ -355,7 +367,6 @@ chrome.runtime.onInstalled.addListener((details) => {
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   (async () => {
     try {
-      console.log('[AgentOS] Message received:', msg.action);
       switch (msg.action) {
 
         case 'login':
@@ -370,13 +381,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
         case 'logout':
           chrome.storage.local.remove(['access_token', 'token_expiry', 'docId']);
-          console.log('[AgentOS] Logged out, cleared all storage');
           sendResponse({ success: true });
           break;
 
         case 'setDocId':
           chrome.storage.local.set({ docId: msg.docId });
-          console.log('[AgentOS] Doc ID set:', msg.docId);
           sendResponse({ success: true });
           break;
 
