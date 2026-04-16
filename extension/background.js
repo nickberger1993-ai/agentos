@@ -524,7 +524,7 @@ chrome.runtime.onMessage.addListener(function(msg, sender, sendResponse) {
 
   if (msg.type === 'buildContext') {
     buildContext().then(function(ctx) {
-      sendResponse({ success: true, data: ctx });
+      sendResponse({ success: true, context: ctx });
     }).catch(function(e) {
       console.error('[AgentOS] buildContext error:', e.message);
       sendResponse({ error: e.message });
@@ -707,6 +707,51 @@ chrome.runtime.onMessage.addListener(function(msg, sender, sendResponse) {
   if (msg.type === 'tabClose') {
     chrome.tabs.remove(msg.tabId, function() { sendResponse({ success: true }); });
     return true;
+
+  // Tab interaction handlers
+  if (msg.type === 'tabClick') {
+    chrome.tabs.query({ active: true, currentWindow: true }, function(tabs) {
+      if (!tabs[0]) { sendResponse({ error: 'No active tab' }); return; }
+      chrome.scripting.executeScript({
+        target: { tabId: tabs[0].id },
+        func: function(sel) {
+          var el = document.querySelector(sel);
+          if (el) { el.click(); return 'Clicked: ' + sel; }
+          return 'Element not found: ' + sel;
+        },
+        args: [msg.selector]
+      }, function(results) {
+        sendResponse({ success: true, result: results && results[0] ? results[0].result : 'No result' });
+      });
+    });
+    return true;
+  }
+
+  if (msg.type === 'tabType') {
+    chrome.tabs.query({ active: true, currentWindow: true }, function(tabs) {
+      if (!tabs[0]) { sendResponse({ error: 'No active tab' }); return; }
+      chrome.scripting.executeScript({
+        target: { tabId: tabs[0].id },
+        func: function(sel, txt) {
+          var el = document.querySelector(sel);
+          if (el) { el.value = txt; el.dispatchEvent(new Event('input', {bubbles:true})); return 'Typed in: ' + sel; }
+          return 'Element not found: ' + sel;
+        },
+        args: [msg.selector, msg.text]
+      }, function(results) {
+        sendResponse({ success: true, result: results && results[0] ? results[0].result : 'No result' });
+      });
+    });
+    return true;
+  }
+
+  if (msg.type === 'tabWait') {
+    setTimeout(function() {
+      sendResponse({ success: true, result: 'Waited ' + msg.ms + 'ms' });
+    }, Math.min(msg.ms || 1000, 10000));
+    return true;
+  }
+
   }
   if (msg.type === 'tabScrape' || msg.type === 'tabRead') {
     chrome.scripting.executeScript({
@@ -721,5 +766,6 @@ chrome.runtime.onMessage.addListener(function(msg, sender, sendResponse) {
 
 // ====================================
 console.log('[AgentOS] Background v4.3 loaded - launchWebAuthFlow auth ready');
+
 
 
