@@ -1,6 +1,9 @@
-// AgentOS Bridge - Content Script v4.1.0
-// KEY CHANGE: Session start now reads SOUL Doc + Sheet + Skills
-// and builds a full context prompt before injecting into AI chat
+// AgentOS Bridge - Content Script v4.3.0
+// FIXES: All message contracts aligned with background.js
+// - resp.data -> resp.context
+// - send() spreads data onto message (no wrapper)
+// - All tag payloads match background.js expectations
+// - Added tabClick/tabType/tabWait handlers
 
 (function() {
   'use strict';
@@ -9,12 +12,10 @@
   var processedTasks = {};
   var DEDUP_WINDOW = 60000;
 
-  // UI elements
   var statusBadge = null;
   var loopBtn = null;
   var sessionBtn = null;
 
-  // State
   var isConnected = false;
   var autoLoopEnabled = false;
   var loopTimer = null;
@@ -23,12 +24,11 @@
   var tagCount = 0;
   var currentSessionId = null;
 
-  // ═══════════════════════════════════════════
+  // =======================================
   // UI INJECTION
-  // ═══════════════════════════════════════════
+  // =======================================
   function injectUI() {
     if (document.getElementById('agentos-badge')) return;
-
     var container = document.createElement('div');
     container.id = 'agentos-container';
     container.style.cssText = 'position:fixed;bottom:20px;right:20px;z-index:99999;font-family:system-ui,-apple-system,sans-serif;';
@@ -85,10 +85,10 @@
     var status = document.getElementById('agentos-status');
     if (!dot || !status) return;
     status.textContent = text;
-    if (state === 'connected') { dot.style.background = '#22c55e'; }
-    else if (state === 'working') { dot.style.background = '#f59e0b'; }
-    else if (state === 'error') { dot.style.background = '#ef4444'; }
-    else { dot.style.background = '#666'; }
+    if (state === 'connected') dot.style.background = '#22c55e';
+    else if (state === 'working') dot.style.background = '#f59e0b';
+    else if (state === 'error') dot.style.background = '#ef4444';
+    else dot.style.background = '#666';
   }
 
   function updateStats() {
@@ -96,15 +96,12 @@
     if (stats) stats.textContent = 'Loops: ' + loopCount + ' | Tags: ' + tagCount;
   }
 
-  // ═══════════════════════════════════════════
-  // SESSION MANAGEMENT - THE KEY PART
-  // ═══════════════════════════════════════════
+  // =======================================
+  // SESSION MANAGEMENT
+  // =======================================
   function toggleSession() {
-    if (sessionActive) {
-      endSession();
-    } else {
-      startSession();
-    }
+    if (sessionActive) endSession();
+    else startSession();
   }
 
   function startSession() {
@@ -115,8 +112,7 @@
     sessionBtn.style.color = '#ef4444';
     updateUI('working', 'Loading context...');
 
-    // THIS IS THE KEY: Ask background.js to read SOUL doc + Sheet + Skills
-    // and return everything so we can build a full prompt
+    // FIX: buildContext returns {success, context} not {success, data}
     chrome.runtime.sendMessage({ type: 'buildContext' }, function(resp) {
       if (chrome.runtime.lastError || !resp || !resp.success) {
         var errMsg = (resp && resp.error) ? resp.error : 'Failed to load context';
@@ -125,70 +121,46 @@
         return;
       }
 
-      // Build the full context prompt from SOUL doc + sheet data + skills
-      var prompt = buildSessionPrompt(resp.data, currentSessionId);
+      // FIX: use resp.context (matches background.js sendResponse)
+      var prompt = buildSessionPrompt(resp.context, currentSessionId);
 
       chrome.runtime.sendMessage({ type: 'startSession', sessionId: currentSessionId });
       updateUI('working', 'Session Active');
-
-      // Inject the full context prompt into the AI chat
       injectMessage(prompt);
     });
   }
 
   function buildSessionPrompt(ctx, sessionId) {
+    if (!ctx) ctx = {};
     var p = '';
     p += '=== AGENTOS SESSION START ===\n';
     p += 'Session ID: ' + sessionId + '\n';
     p += 'Time: ' + new Date().toLocaleString() + '\n\n';
 
-    // SOUL / Identity from the Doc
     if (ctx.soul) {
       p += '--- YOUR MEMORY (from your SOUL Doc) ---\n';
       p += ctx.soul.substring(0, 4000);
       p += '\n\n';
     }
 
-    // Current tasks from Sheet
-    if (ctx.tasks && ctx.tasks.length > 0) {
-      p += '--- YOUR CURRENT TASKS ---\n';
-      ctx.tasks.forEach(function(row) {
-        p += '- ' + row.join(' | ') + '\n';
-      });
-      p += '\n';
+    if (ctx.tasks && ctx.tasks !== '(empty)') {
+      p += '--- YOUR CURRENT TASKS ---\n' + ctx.tasks + '\n\n';
     } else {
-      p += '--- YOUR CURRENT TASKS ---\n';
-      p += '(No tasks yet. Add some with [ADD_TASK: description])\n\n';
+      p += '--- YOUR CURRENT TASKS ---\n(No tasks yet. Add some with [ADD_TASK: description])\n\n';
     }
 
-    // Recent sessions
-    if (ctx.sessions && ctx.sessions.length > 0) {
-      p += '--- RECENT SESSIONS ---\n';
-      ctx.sessions.slice(-3).forEach(function(row) {
-        p += '- ' + row.join(' | ') + '\n';
-      });
-      p += '\n';
+    if (ctx.sessions && ctx.sessions !== '(empty)') {
+      p += '--- RECENT SESSIONS ---\n' + ctx.sessions + '\n\n';
     }
 
-    // Available skills
-    if (ctx.skills && ctx.skills.length > 0) {
-      p += '--- YOUR SKILLS ---\n';
-      ctx.skills.forEach(function(row) {
-        p += '- ' + row.join(' | ') + '\n';
-      });
-      p += '\n';
+    if (ctx.skills && ctx.skills !== '(empty)') {
+      p += '--- YOUR SKILLS ---\n' + ctx.skills + '\n\n';
     }
 
-    // Active agents
-    if (ctx.agents && ctx.agents.length > 0) {
-      p += '--- ACTIVE AGENTS ---\n';
-      ctx.agents.forEach(function(row) {
-        p += '- ' + row.join(' | ') + '\n';
-      });
-      p += '\n';
+    if (ctx.agents && ctx.agents !== '(empty)') {
+      p += '--- ACTIVE AGENTS ---\n' + ctx.agents + '\n\n';
     }
 
-    // Instructions
     p += '--- INSTRUCTIONS ---\n';
     p += 'You are an autonomous AI agent running on AgentOS. ';
     p += 'You have persistent memory (the SOUL doc above), a database (Google Sheets), ';
@@ -196,9 +168,10 @@
     p += 'AVAILABLE COMMAND TAGS:\n';
     p += 'Memory: [SAVE_NOTE: text] [SHEET_WRITE: tab|range|data] [SHEET_READ: tab|range] ';
     p += '[SHEET_APPEND: tab|data] [TASK_DONE: task] [ADD_TASK: task] [SKIP: reason]\n';
-    p += 'Browser: [TAB_OPEN: url] [TAB_SCRAPE: url] [BROWSE: query] [TAB_READ] [TAB_LIST]\n';
+    p += 'Browser: [TAB_OPEN: url] [TAB_SCRAPE: url] [TAB_CLICK: selector] [TAB_TYPE: selector|text] ';
+    p += '[TAB_READ] [TAB_LIST] [TAB_CLOSE: tabId] [TAB_WAIT: ms] [BROWSE: query]\n';
     p += 'Skills: [SKILL_CREATE: name|content] [SKILL_SEARCH: query] [SKILL_RECALL: name] [SKILL_LIST]\n';
-    p += 'Schedule: [SCHEDULE_TASK: name|when|action] [SCHEDULE_LIST] [SCHEDULE_CANCEL: name]\n';
+    p += 'Schedule: [SCHEDULE_TASK: title|time|recurrence] [SCHEDULE_LIST] [SCHEDULE_CANCEL: query]\n';
     p += 'Agents: [SPAWN_AGENT: name|role] [AGENT_MSG: name|msg] [AGENT_LIST]\n';
     p += 'Email: [EMAIL_NOTIFY: to|subject|body] [EMAIL_CHECK]\n';
     p += 'Session: [SESSION_COMPLETE: summary]\n\n';
@@ -211,7 +184,6 @@
     p += '6. When done, use [SESSION_COMPLETE: summary of what you did].\n\n';
     p += 'Begin autonomous work now. What is your first action?\n';
     p += '=== END CONTEXT ===';
-
     return p;
   }
 
@@ -226,9 +198,9 @@
     currentSessionId = null;
   }
 
-  // ═══════════════════════════════════════════
+  // =======================================
   // AUTO-LOOP ENGINE
-  // ═══════════════════════════════════════════
+  // =======================================
   function toggleLoop() {
     autoLoopEnabled = !autoLoopEnabled;
     if (autoLoopEnabled) {
@@ -250,9 +222,10 @@
     loopTimer = setTimeout(runLoop, 3000);
   }
 
-  // ═══════════════════════════════════════════
+  // =======================================
   // TAG SCANNING ENGINE
-  // ═══════════════════════════════════════════
+  // FIX: All payloads now match background.js msg.* expectations
+  // =======================================
   function scanAllNodes() {
     var messages = document.querySelectorAll(
       '[class*="message"], [class*="response"], [class*="answer"], ' +
@@ -271,18 +244,18 @@
     var text = node.textContent || '';
     if (!text.includes('[')) return;
 
-    // ── MEMORY TAGS ──
+    // -- MEMORY TAGS (FIX: field names match background.js) --
     handleTag(text, /\[SAVE_NOTE:\s*(.+?)\]/g, function(m) {
-      send('saveNote', { note: m[1] });
+      send('saveNote', { text: m[1] });
     });
     handleTag(text, /\[SHEET_WRITE:\s*(.+?)\|(.+?)\|(.+?)\]/g, function(m) {
-      send('sheetWrite', { sheet: m[1].trim(), range: m[2].trim(), data: m[3].trim() });
+      send('sheetWrite', { range: m[1].trim() + '!' + m[2].trim(), values: [[m[3].trim()]] });
     });
     handleTag(text, /\[SHEET_READ:\s*(.+?)\|(.+?)\]/g, function(m) {
-      send('sheetRead', { sheet: m[1].trim(), range: m[2].trim() });
+      send('sheetRead', { range: m[1].trim() + '!' + m[2].trim() });
     });
     handleTag(text, /\[SHEET_APPEND:\s*(.+?)\|(.+?)\]/g, function(m) {
-      send('sheetAppend', { sheet: m[1].trim(), data: m[2].trim() });
+      send('sheetAppend', { range: m[1].trim() + '!A:Z', values: [[m[2].trim()]] });
     });
     handleTag(text, /\[TASK_DONE:\s*(.+?)\]/g, function(m) {
       send('taskDone', { task: m[1] });
@@ -291,10 +264,10 @@
       send('addTask', { task: m[1] });
     });
     handleTag(text, /\[SKIP:\s*(.+?)\]/g, function(m) {
-      send('skip', { reason: m[1] });
+      injectResult('skip', { success: true, data: 'Skipped: ' + m[1] });
     });
 
-    // ── BROWSER TAGS ──
+    // -- BROWSER TAGS --
     handleTag(text, /\[TAB_OPEN:\s*(.+?)\]/g, function(m) {
       send('tabOpen', { url: m[1].trim() });
     });
@@ -314,18 +287,18 @@
       send('tabList', {});
     });
     handleTag(text, /\[TAB_CLOSE:\s*(.+?)\]/g, function(m) {
-      send('tabClose', { tabId: m[1].trim() });
+      send('tabClose', { tabId: parseInt(m[1].trim()) });
     });
     handleTag(text, /\[TAB_WAIT:\s*(\d+)\]/g, function(m) {
       send('tabWait', { ms: parseInt(m[1]) });
     });
     handleTag(text, /\[BROWSE:\s*(.+?)\]/g, function(m) {
-      send('browse', { query: m[1] });
+      send('tabOpen', { url: 'https://www.google.com/search?q=' + encodeURIComponent(m[1]) });
     });
 
-    // ── SKILL TAGS ──
+    // -- SKILL TAGS (FIX: content->code, improvement->code) --
     handleTag(text, /\[SKILL_CREATE:\s*(.+?)\|(.+?)\]/g, function(m) {
-      send('skillCreate', { name: m[1].trim(), content: m[2].trim() });
+      send('skillCreate', { name: m[1].trim(), code: m[2].trim() });
     });
     handleTag(text, /\[SKILL_SEARCH:\s*(.+?)\]/g, function(m) {
       send('skillSearch', { query: m[1].trim() });
@@ -334,61 +307,61 @@
       send('skillRecall', { name: m[1].trim() });
     });
     handleTag(text, /\[SKILL_IMPROVE:\s*(.+?)\|(.+?)\]/g, function(m) {
-      send('skillImprove', { name: m[1].trim(), improvement: m[2].trim() });
+      send('skillImprove', { name: m[1].trim(), code: m[2].trim() });
     });
     handleTag(text, /\[SKILL_LIST\]/g, function(m) {
       send('skillList', {});
     });
 
-    // ── SCHEDULER TAGS ──
+    // -- SCHEDULER TAGS (FIX: name->title, when->time, action->recurrence) --
     handleTag(text, /\[SCHEDULE_TASK:\s*(.+?)\|(.+?)\|(.+?)\]/g, function(m) {
-      send('scheduleTask', { name: m[1].trim(), when: m[2].trim(), action: m[3].trim() });
+      send('scheduleTask', { title: m[1].trim(), time: m[2].trim(), recurrence: m[3].trim() });
     });
     handleTag(text, /\[SCHEDULE_LIST\]/g, function(m) {
       send('scheduleList', {});
     });
     handleTag(text, /\[SCHEDULE_CANCEL:\s*(.+?)\]/g, function(m) {
-      send('scheduleCancel', { name: m[1].trim() });
+      send('scheduleCancel', { query: m[1].trim() });
     });
 
-    // ── MULTI-AGENT TAGS ──
+    // -- MULTI-AGENT TAGS (FIX: agent->name) --
     handleTag(text, /\[SPAWN_AGENT:\s*(.+?)\|(.+?)\]/g, function(m) {
-      send('spawnAgent', { name: m[1].trim(), role: m[2].trim() });
+      send('spawnAgent', { name: m[1].trim(), soul: m[2].trim() });
     });
     handleTag(text, /\[AGENT_MSG:\s*(.+?)\|(.+?)\]/g, function(m) {
-      send('agentMsg', { agent: m[1].trim(), message: m[2].trim() });
+      send('agentMsg', { name: m[1].trim(), message: m[2].trim() });
     });
     handleTag(text, /\[ASSIGN_TASK:\s*(.+?)\|(.+?)\]/g, function(m) {
-      send('assignTask', { agent: m[1].trim(), task: m[2].trim() });
+      send('assignTask', { name: m[1].trim(), task: m[2].trim() });
     });
     handleTag(text, /\[AGENT_LIST\]/g, function(m) {
       send('agentList', {});
     });
     handleTag(text, /\[AGENT_DONE:\s*(.+?)\]/g, function(m) {
-      send('agentDone', { agent: m[1].trim() });
+      send('agentDone', { name: m[1].trim() });
     });
 
-    // ── EMAIL GATEWAY TAGS ──
+    // -- EMAIL TAGS --
     handleTag(text, /\[EMAIL_NOTIFY:\s*(.+?)\|(.+?)\|(.+?)\]/g, function(m) {
       send('emailNotify', { to: m[1].trim(), subject: m[2].trim(), body: m[3].trim() });
     });
     handleTag(text, /\[EMAIL_REPORT:\s*(.+?)\|(.+?)\]/g, function(m) {
-      send('emailReport', { subject: m[1].trim(), body: m[2].trim() });
+      send('emailReport', { to: 'me', subject: m[1].trim(), body: m[2].trim() });
     });
     handleTag(text, /\[EMAIL_CHECK\]/g, function(m) {
       send('emailCheck', {});
     });
 
-    // ── SESSION TAG ──
+    // -- SESSION TAG --
     handleTag(text, /\[SESSION_COMPLETE:\s*(.+?)\]/g, function(m) {
-      send('sessionComplete', { summary: m[1] });
+      send('endSession', { summary: m[1] });
       endSession();
     });
   }
 
-  // ═══════════════════════════════════════════
+  // =======================================
   // HELPER FUNCTIONS
-  // ═══════════════════════════════════════════
+  // =======================================
   function handleTag(text, regex, callback) {
     var match;
     while ((match = regex.exec(text)) !== null) {
@@ -398,33 +371,35 @@
       processedTasks[tagKey] = now;
       tagCount++;
       updateStats();
-      try {
-        callback(match);
-      } catch (e) {
-        console.error('[AgentOS] Tag handler error:', e);
-      }
+      try { callback(match); } catch (e) { console.error('[AgentOS] Tag handler error:', e); }
     }
   }
 
+  // FIX: send() now spreads data onto the message object
+  // Before: chrome.runtime.sendMessage({ type: type, data: data })
+  // After:  chrome.runtime.sendMessage({ type: type, ...data })
+  // This way background.js can read msg.range, msg.values, msg.task etc directly
   function send(type, data) {
     updateUI('working', 'Executing: ' + type);
-    chrome.runtime.sendMessage({ type: type, data: data }, function(response) {
+    var message = { type: type };
+    for (var key in data) {
+      if (data.hasOwnProperty(key)) message[key] = data[key];
+    }
+    chrome.runtime.sendMessage(message, function(response) {
       if (chrome.runtime.lastError) {
         console.error('[AgentOS] Send error:', chrome.runtime.lastError);
         injectResult(type, { error: chrome.runtime.lastError.message });
         updateUI('error', 'Error: ' + type);
         return;
       }
-      if (response) {
-        injectResult(type, response);
-      }
+      if (response) injectResult(type, response);
       updateUI(sessionActive ? 'working' : 'connected', sessionActive ? 'Session Active' : 'AgentOS Ready');
     });
   }
 
-  // ═══════════════════════════════════════════
-  // RESULT INJECTION - Feeds results back to AI
-  // ═══════════════════════════════════════════
+  // =======================================
+  // RESULT INJECTION
+  // =======================================
   function injectResult(type, data) {
     var resultText = '[RESULT:' + type + '] ';
     if (data.error) {
@@ -432,7 +407,14 @@
     } else if (data.success !== undefined) {
       resultText += data.success ? 'OK' : 'FAILED';
       if (data.data) resultText += ' | ' + (typeof data.data === 'string' ? data.data : JSON.stringify(data.data).substring(0, 500));
-      if (data.message) resultText += ' | ' + data.message;
+      if (data.result) resultText += ' | ' + (typeof data.result === 'string' ? data.result : JSON.stringify(data.result).substring(0, 500));
+      if (data.text) resultText += ' | ' + data.text.substring(0, 500);
+      if (data.tasks) resultText += ' | ' + data.tasks;
+      if (data.skills) resultText += ' | ' + data.skills;
+      if (data.agents) resultText += ' | ' + data.agents;
+      if (data.inbox) resultText += ' | ' + data.inbox;
+      if (data.results) resultText += ' | ' + data.results;
+      if (data.code) resultText += ' | ' + data.code.substring(0, 500);
     } else {
       resultText += JSON.stringify(data).substring(0, 500);
     }
@@ -442,30 +424,24 @@
   function injectMessage(text) {
     var selectors = [
       '#prompt-textarea',
-      'textarea[placeholder*="message"]',
-      'textarea[placeholder*="Message"]',
-      'textarea[placeholder*="Send"]',
-      'textarea[placeholder*="Ask"]',
+      'textarea[placeholder*="message"]', 'textarea[placeholder*="Message"]',
+      'textarea[placeholder*="Send"]', 'textarea[placeholder*="Ask"]',
       'textarea[placeholder*="Type"]',
       'div[contenteditable="true"][role="textbox"]',
       'div[contenteditable="true"][class*="input"]',
       'div[contenteditable="true"][class*="ProseMirror"]',
-      'textarea[data-id]',
-      'textarea'
+      'textarea[data-id]', 'textarea'
     ];
-
     var input = null;
     for (var i = 0; i < selectors.length; i++) {
       input = document.querySelector(selectors[i]);
       if (input) break;
     }
-
     if (!input) {
       console.warn('[AgentOS] No chat input found');
       showFloatingResult(text);
       return;
     }
-
     if (input.tagName === 'TEXTAREA') {
       var nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set;
       nativeSetter.call(input, text);
@@ -473,46 +449,29 @@
       input.dispatchEvent(new Event('change', { bubbles: true }));
     } else if (input.contentEditable === 'true') {
       input.focus();
-      // For ProseMirror / contenteditable (Claude, ChatGPT new UI)
       input.innerHTML = '';
       var p = document.createElement('p');
       p.textContent = text;
       input.appendChild(p);
       input.dispatchEvent(new Event('input', { bubbles: true }));
     }
-
-    // Auto-send if loop is active
-    if (autoLoopEnabled) {
-      setTimeout(function() { autoSend(); }, 800);
-    }
+    if (autoLoopEnabled) setTimeout(function() { autoSend(); }, 800);
   }
 
   function autoSend() {
     var sendSelectors = [
       'button[data-testid="send-button"]',
-      'button[aria-label*="Send"]',
-      'button[aria-label*="send"]',
-      'button[class*="send"]',
-      'button[class*="Send"]',
+      'button[aria-label*="Send"]', 'button[aria-label*="send"]',
+      'button[class*="send"]', 'button[class*="Send"]',
       'form button[type="submit"]'
     ];
-
     for (var i = 0; i < sendSelectors.length; i++) {
       var btn = document.querySelector(sendSelectors[i]);
-      if (btn && !btn.disabled) {
-        btn.click();
-        return;
-      }
+      if (btn && !btn.disabled) { btn.click(); return; }
     }
-
-    // Fallback: Enter key
-    var input = document.querySelector('#prompt-textarea') ||
-                document.querySelector('textarea') ||
-                document.querySelector('div[contenteditable="true"]');
+    var input = document.querySelector('#prompt-textarea') || document.querySelector('textarea') || document.querySelector('div[contenteditable="true"]');
     if (input) {
-      input.dispatchEvent(new KeyboardEvent('keydown', {
-        key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true
-      }));
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true }));
     }
   }
 
@@ -521,16 +480,12 @@
     toast.style.cssText = 'position:fixed;top:20px;right:20px;background:#1a1a2e;color:#00d4ff;padding:12px 20px;border-radius:12px;font-size:12px;z-index:99999;max-width:500px;word-wrap:break-word;border:1px solid #00d4ff33;box-shadow:0 4px 20px rgba(0,0,0,0.4);white-space:pre-wrap;max-height:300px;overflow-y:auto;';
     toast.textContent = text.substring(0, 500);
     document.body.appendChild(toast);
-    setTimeout(function() {
-      toast.style.opacity = '0';
-      toast.style.transition = 'opacity 0.5s';
-      setTimeout(function() { toast.remove(); }, 500);
-    }, 8000);
+    setTimeout(function() { toast.style.opacity = '0'; toast.style.transition = 'opacity 0.5s'; setTimeout(function() { toast.remove(); }, 500); }, 8000);
   }
 
-  // ═══════════════════════════════════════════
-  // MUTATION OBSERVER - Real-time tag detection
-  // ═══════════════════════════════════════════
+  // =======================================
+  // MUTATION OBSERVER
+  // =======================================
   var observer = new MutationObserver(function(mutations) {
     if (!sessionActive) return;
     mutations.forEach(function(mutation) {
@@ -540,10 +495,7 @@
             '[class*="message"], [class*="response"], [class*="markdown"], [class*="prose"]'
           ) : [];
           messages.forEach(function(msg) {
-            if (!processedNodes.has(msg)) {
-              processedNodes.add(msg);
-              scanNode(msg);
-            }
+            if (!processedNodes.has(msg)) { processedNodes.add(msg); scanNode(msg); }
           });
           if (!processedNodes.has(node) && node.textContent && node.textContent.includes('[')) {
             processedNodes.add(node);
@@ -553,36 +505,29 @@
       });
     });
   });
-
   observer.observe(document.body, { childList: true, subtree: true });
 
-  // ═══════════════════════════════════════════
-  // MESSAGE LISTENER
-  // ═══════════════════════════════════════════
+  // =======================================
+  // MESSAGE LISTENER (FIX: injectPrompt reads msg.text)
+  // =======================================
   chrome.runtime.onMessage.addListener(function(msg, sender, sendResponse) {
     if (msg.type === 'startSession') { startSession(); sendResponse({ ok: true }); }
     else if (msg.type === 'endSession') { endSession(); sendResponse({ ok: true }); }
     else if (msg.type === 'toggleLoop') { toggleLoop(); sendResponse({ ok: true }); }
     else if (msg.type === 'injectPrompt') { injectMessage(msg.text); sendResponse({ ok: true }); }
     else if (msg.type === 'getContentState') {
-      sendResponse({
-        sessionActive: sessionActive,
-        autoLoop: autoLoopEnabled,
-        loopCount: loopCount,
-        tagCount: tagCount,
-        sessionId: currentSessionId
-      });
+      sendResponse({ sessionActive: sessionActive, autoLoop: autoLoopEnabled, loopCount: loopCount, tagCount: tagCount, sessionId: currentSessionId });
     }
     return true;
   });
 
-  // ═══════════════════════════════════════════
+  // =======================================
   // INIT
-  // ═══════════════════════════════════════════
+  // =======================================
   function init() {
     injectUI();
-    console.log('[AgentOS] Content script v4.1 loaded');
-    console.log('[AgentOS] Session start now builds full context from SOUL Doc + Sheet');
+    console.log('[AgentOS] Content script v4.3 loaded');
+    console.log('[AgentOS] All message contracts aligned with background.js');
   }
 
   if (document.readyState === 'loading') {
@@ -592,4 +537,3 @@
   }
 
 })();
-
