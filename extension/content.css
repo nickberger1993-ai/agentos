@@ -1,81 +1,77 @@
-/* AgentOS Bridge - Content Script Styles */
+/* AgentOS Bridge - Content Styles v4.0 */
 
-#agentos-badge {
-  position: fixed;
-  bottom: 20px;
-  right: 20px;
-  background: #111;
-  color: #fafafa;
-  padding: 8px 16px;
-  border-radius: 20px;
-  font-size: 12px;
-  font-weight: 600;
-  font-family: system-ui, sans-serif;
-  z-index: 99999;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  box-shadow: 0 2px 12px rgba(0,0,0,0.3);
-  border: 1px solid #222;
-  transition: all 0.3s ease;
-  cursor: default;
-  user-select: none;
+/* Pulse animation for working state */
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
 }
 
-.agentos-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: #888;
-  flex-shrink: 0;
+@keyframes slideIn {
+  from { transform: translateX(100px); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; }
 }
 
-#agentos-read-btn {
-  position: fixed;
-  bottom: 60px;
-  right: 20px;
-  background: #1a1a2e;
-  color: #fafafa;
-  border: 1px solid #333;
-  padding: 8px 14px;
-  border-radius: 8px;
-  font-size: 12px;
-  font-weight: 600;
-  font-family: system-ui, sans-serif;
-  cursor: pointer;
-  z-index: 99999;
-  transition: all 0.2s;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 
-#agentos-read-btn:hover {
-  background: #3b82f6;
-  border-color: #3b82f6;
+/* Main container */
+#agentos-container {
+  animation: slideIn 0.3s ease-out;
 }
 
-.agentos-notification {
-  position: fixed;
-  top: 20px;
-  right: 20px;
-  background: #1a1a2e;
-  color: #fafafa;
-  padding: 12px 20px;
-  border-radius: 8px;
-  font-size: 13px;
-  font-family: system-ui, sans-serif;
-  z-index: 100000;
-  box-shadow: 0 4px 16px rgba(0,0,0,0.4);
-  border: 1px solid #3b82f6;
-  animation: agentos-slide-in 0.3s ease-out;
+/* Badge hover effects */
+#agentos-badge:hover {
+  transform: scale(1.05);
+  box-shadow: 0 6px 24px rgba(0, 212, 255, 0.4) !important;
 }
 
-@keyframes agentos-slide-in {
-  from {
-    transform: translateX(100%);
-    opacity: 0;
-  }
-  to {
-    transform: translateX(0);
-    opacity: 1;
-  }
+/* Panel animations */
+#agentos-panel {
+  animation: fadeIn 0.2s ease-out;
 }
+
+/* Button hover effects */
+#agentos-loop-btn:hover,
+#agentos-session-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(0, 212, 255, 0.2);
+}
+
+/* Active loop state */
+#agentos-loop-btn.active {
+  background: rgba(0, 212, 255, 0.15) !important;
+  border-color: #00d4ff !important;
+}
+
+/* Session active state */
+#agentos-session-btn.active {
+  background: rgba(34, 197, 94, 0.15) !important;
+  border-color: #22c55e !important;
+}
+
+/* Toast notification */
+.agentos-toast {
+  animation: slideIn 0.3s ease-out;
+}
+
+/* Status dot pulse */
+#agentos-dot {
+  transition: background 0.3s ease;
+}
+
+/* Scrollbar for panel */
+#agentos-panel::-webkit-scrollbar {
+  width: 4px;
+}
+
+#agentos-panel::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+#agentos-panel::-webkit-scrollbar-thumb {
+  background: #00d4ff33;
+  border-radius: 2px;
+}
+
