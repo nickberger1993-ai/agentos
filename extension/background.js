@@ -707,6 +707,7 @@ chrome.runtime.onMessage.addListener(function(msg, sender, sendResponse) {
   if (msg.type === 'tabClose') {
     chrome.tabs.remove(msg.tabId, function() { sendResponse({ success: true }); });
     return true;
+  }
 
   // Tab interaction handlers
   if (msg.type === 'tabClick') {
@@ -752,13 +753,42 @@ chrome.runtime.onMessage.addListener(function(msg, sender, sendResponse) {
     return true;
   }
 
+  if (msg.type === 'tabRead') {
+    chrome.tabs.query({ active: true, currentWindow: true }, function(tabs) {
+      if (!tabs[0]) { sendResponse({ error: 'No active tab' }); return; }
+      chrome.scripting.executeScript({
+        target: { tabId: tabs[0].id },
+        func: function() { return document.body.innerText.substring(0, 5000); }
+      }, function(results) {
+        sendResponse({ success: true, text: results && results[0] ? results[0].result : 'Could not read tab' });
+      });
+    });
+    return true;
   }
-  if (msg.type === 'tabScrape' || msg.type === 'tabRead') {
-    chrome.scripting.executeScript({
-      target: { tabId: msg.tabId },
-      func: function() { return document.body.innerText.substring(0, 5000); }
-    }, function(results) {
-      sendResponse({ success: true, text: results && results[0] ? results[0].result : 'Could not read tab' });
+  if (msg.type === 'tabScrape') {
+    chrome.tabs.create({ url: msg.url, active: false }, function(newTab) {
+      var done = false;
+      function finish(result, error) {
+        if (done) return; done = true;
+        try { chrome.tabs.remove(newTab.id); } catch(e){}
+        if (error) sendResponse({ error: error });
+        else sendResponse({ success: true, text: result });
+      }
+      var listener = function(tabId, info) {
+        if (tabId === newTab.id && info.status === 'complete') {
+          chrome.tabs.onUpdated.removeListener(listener);
+          setTimeout(function() {
+            chrome.scripting.executeScript({
+              target: { tabId: newTab.id },
+              func: function() { return document.body.innerText.substring(0, 5000); }
+            }, function(results) {
+              finish(results && results[0] ? results[0].result : 'Could not read', null);
+            });
+          }, 1500);
+        }
+      };
+      chrome.tabs.onUpdated.addListener(listener);
+      setTimeout(function() { finish(null, 'Scrape timeout'); }, 15000);
     });
     return true;
   }
