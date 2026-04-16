@@ -38,9 +38,18 @@ var state = {
 chrome.storage.local.get(['agentosState'], function(result) {
   if (result.agentosState) {
     Object.assign(state, result.agentosState);
-    state.token = null;
-    state.tokenExpiry = 0;
+    state.token = null; state.tokenExpiry = 0; clearPersistedToken();
     console.log('[AgentOS] State restored:', state.connected ? 'Connected (token will refresh on first API call)' : 'Disconnected');
+  }
+  // Rehydrate access token from session storage (in-memory, survives SW sleep, never touches disk)
+  if (chrome.storage.session && chrome.storage.session.get) {
+    chrome.storage.session.get(['agentosToken'], function(r) {
+      if (r && r.agentosToken && r.agentosToken.expiry > Date.now()) {
+        state.token = r.agentosToken.token;
+        state.tokenExpiry = r.agentosToken.expiry;
+        console.log('[AgentOS] Token rehydrated from session storage');
+      }
+    });
   }
 });
 
@@ -63,8 +72,7 @@ function gfetch(url, options, attempt) {
         .then(function() { return gfetch(url, options, attempt + 1); });
     }
     if (r.status === 401) {
-      state.token = null;
-      state.tokenExpiry = 0;
+      state.token = null; state.tokenExpiry = 0; clearPersistedToken();
     }
     return r.text().then(function(t) {
       var body; try { body = JSON.parse(t); } catch(e) { body = { error: { message: t || r.statusText } }; }
@@ -91,6 +99,18 @@ function saveState() {
 }
 
 // ====================================
+// --- Session-storage token persistence (in-memory only, never disk) ---
+function persistToken(token, expiry) {
+  if (chrome.storage.session && chrome.storage.session.set) {
+    chrome.storage.session.set({ agentosToken: { token: token, expiry: expiry } });
+  }
+}
+function clearPersistedToken() {
+  if (chrome.storage.session && chrome.storage.session.remove) {
+    chrome.storage.session.remove('agentosToken');
+  }
+}
+
 // AUTH via launchWebAuthFlow
 // ====================================
 function getToken(interactive) {
@@ -101,8 +121,7 @@ function getToken(interactive) {
       return;
     }
     // Clear expired token
-    state.token = null;
-    state.tokenExpiry = 0;
+    state.token = null; state.tokenExpiry = 0; clearPersistedToken();
 
     if (!interactive) {
       reject(new Error('No valid token and interactive=false'));
@@ -152,6 +171,7 @@ function getToken(interactive) {
       state.tokenExpiry = Date.now() + (expiresIn * 1000) - 60000; // 1 min buffer
       state.connected = true;
       saveState();
+      persistToken(accessToken, state.tokenExpiry);
       console.log('[AgentOS] Token obtained, expires in', expiresIn, 'seconds');
       resolve(accessToken);
     });
@@ -528,9 +548,9 @@ function assignTaskToAgent(name, task) { return messageAgent(name, '[TASK] ' + t
 
 function findAgentDoc(name) {
   return getToken(true).then(function(token) {
-    return fetch("https://www.googleapis.com/drive/v3/files?q=name+contains+'AgentOS-Agent:+" + encodeURIComponent(name) + "'&fields=files(id)", {
+    return gfetch('https://www.googleapis.com/drive/v3/files?q=' + encodeURIComponent("name='AgentOS-Agent: " + name + "'") + '&fields=files(id,name)', {
       headers: { 'Authorization': 'Bearer ' + token }
-    }).then(function(r) { return r.json(); }).then(function(d) {
+    }).then(function(d) {
       if (!d.files||!d.files.length) throw new Error('Agent not found: ' + name);
       return d.files[0].id;
     });
@@ -539,10 +559,10 @@ function findAgentDoc(name) {
 
 function listAgents() {
   return getToken(true).then(function(token) {
-    return fetch("https://www.googleapis.com/drive/v3/files?q=name+contains+'AgentOS-Agent'&fields=files(name)", {
+    return gfetch('https://www.googleapis.com/drive/v3/files?q=' + encodeURIComponent("name contains 'AgentOS-Agent:'") + '&fields=files(id,name)', {
       headers: { 'Authorization': 'Bearer ' + token }
-    }).then(function(r) { return r.json(); }).then(function(d) {
-      var f = d.files||[];
+    }).then(function(d) {
+      var f = (d.files || []);
       return f.length ? f.map(function(x) { return x.name.replace('AgentOS-Agent: ',''); }).join(', ') : 'No agents';
     });
   });
