@@ -1,40 +1,39 @@
 {
   "manifest_version": 3,
-  "name": "AgentOS Bridge",
-  "version": "3.0.0",
-  "description": "Turn any AI chat into an autonomous agent with browser control. Navigate, click, type, scrape — the AI agent for everyone.",
+  "name": "AgentOS",
+  "version": "4.1.0",
+  "description": "Turn any AI into a persistent autonomous agent. Free. No server. Just Google.",
   "permissions": [
-    "storage",
-    "activeTab",
     "identity",
+    "storage",
     "tabs",
-    "scripting"
+    "scripting",
+    "activeTab"
   ],
-  "oauth2": {
-    "client_id": "930312309217-9tgvu1i7o3hrogrmnooplbpgminq54m9.apps.googleusercontent.com",
-    "scopes": [
-      "https://www.googleapis.com/auth/documents",
-      "https://www.googleapis.com/auth/spreadsheets"
-    ]
-  },
   "host_permissions": [
     "https://docs.googleapis.com/*",
-    "https://www.googleapis.com/*",
     "https://sheets.googleapis.com/*",
-    "https://accounts.google.com/*",
-    "<all_urls>"
+    "https://www.googleapis.com/*",
+    "https://gmail.googleapis.com/*"
   ],
+  "oauth2": {
+    "client_id": "930312309217-feg74re5infbp7ab5qkt8cusi4qmq1ue.apps.googleusercontent.com",
+    "scopes": [
+      "https://www.googleapis.com/auth/documents",
+      "https://www.googleapis.com/auth/spreadsheets",
+      "https://www.googleapis.com/auth/drive.file",
+      "https://www.googleapis.com/auth/calendar",
+      "https://www.googleapis.com/auth/gmail.send",
+      "https://www.googleapis.com/auth/gmail.readonly",
+      "https://www.googleapis.com/auth/userinfo.email"
+    ]
+  },
   "background": {
     "service_worker": "background.js"
   },
   "content_scripts": [
     {
-      "matches": [
-        "https://chatgpt.com/*",
-        "https://chat.openai.com/*",
-        "https://claude.ai/*",
-        "https://gemini.google.com/*"
-      ],
+      "matches": ["<all_urls>"],
       "js": ["content.js"],
       "css": ["content.css"],
       "run_at": "document_idle"
@@ -42,6 +41,12 @@
   ],
   "action": {
     "default_popup": "popup.html",
-    "default_title": "AgentOS Bridge"
-  }
+    "default_title": "AgentOS"
+  },
+  "icons": {
+    "16": "icon16.png",
+    "48": "icon48.png",
+    "128": "icon128.png"
+  },
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA0"
 }
