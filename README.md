@@ -1,476 +1,186 @@
 # AgentOS
 
-**Turn any AI into an autonomous agent. Zero config. Just a Google account.**
+**Turn any AI into a persistent autonomous agent. Free. No server. Just Google.**
 
-[![Live Demo](https://img.shields.io/badge/demo-live-brightgreen)](https://nickberger1993-ai.github.io/agentos/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Price: Free](https://img.shields.io/badge/Price-Free_Forever-blue)](https://nickberger1993-ai.github.io/agentos/setup.html)
-[![Version](https://img.shields.io/badge/version-4.0.0-purple)](https://github.com/nickberger1993-ai/agentos)
+AgentOS is an open-source Chrome extension that transforms any chat AI (ChatGPT, Claude, Gemini) into a full autonomous agent with persistent memory, skills, scheduling, email, and multi-agent coordination — all powered by your free Google account.
 
----
+## Why AgentOS?
 
-## The Problem
-
-Every AI agent framework needs servers, Docker, API keys, Python environments, and technical setup. Most people don't have that. But **everyone has a Google account**.
-
-## The Solution
-
-AgentOS turns any AI chat into a fully autonomous agent using only free Google services:
-
-| What You Need | What AgentOS Uses It For |
-|---|---|
-| Google Account | Authentication (OAuth) |
-| Google Docs | Agent memory + SOUL (personality) |
-| Google Sheets | Structured database + logs |
-| Google Calendar | Task scheduler (cron jobs) |
-| Gmail | Messaging gateway (email tasks in/out) |
-| Chrome | Extension bridge to any AI chat |
-
-**One click. Connect Google. Everything auto-generates. Your agent is live.**
+| Problem | AgentOS Solution |
+|---------|-----------------|
+| AI forgets everything between sessions | Google Doc = persistent SOUL memory |
+| No database or structured storage | Google Sheets = 6-tab database |
+| Can't learn or save reusable skills | Google Docs = one doc per skill |
+| No task scheduling or automation | Google Calendar = cron-style scheduler |
+| No messaging or notifications | Gmail = email gateway |
+| Can't delegate to sub-agents | Google Drive = multi-agent system |
+| Requires expensive API keys | Works with ANY free chat AI |
+| Needs a server | Runs 100% in your browser |
 
 ## How It Works
 
 ```
-1. Install Chrome Extension
-2. Open ChatGPT / Claude / Gemini
-3. Click "Connect Google" (OAuth consent)
-4. AgentOS auto-creates:
-   - Memory Doc (SOUL + TODO + Notes)
-   - Database Sheet (Sessions + Skills + Agents + Messages)
-   - Task Calendar ("AgentOS Tasks")
-   - Gmail Label ("AgentOS")
-5. Click "Start Session" - the agent takes over
+Connect Google Account → Extension auto-creates Doc + Sheet
+  ↓
+Open any AI chat → Click "Start Session"
+  ↓
+AI reads its SOUL memory → Sees current tasks
+  ↓
+AI outputs command tags → Extension executes them
+  ↓
+[BROWSE: latest AI news] → Opens Google search
+[SAVE_NOTE: found 3 articles] → Saves to memory Doc
+[SKILL_CREATE: research|...] → Creates reusable skill
+[SCHEDULE_TASK: daily-report|tomorrow 9am|...] → Sets Calendar event
+[EMAIL_NOTIFY: user@email.com|Report|...] → Sends via Gmail
+  ↓
+Results injected back → AI continues autonomously
+  ↓
+Session ends → Summary saved → Next session picks up where it left off
 ```
 
-### The Autonomous Loop
+## 34 Command Tags
+
+**Memory:** SAVE_NOTE, SHEET_WRITE, SHEET_READ, SHEET_APPEND, TASK_DONE, ADD_TASK, SKIP
+
+**Browser:** TAB_OPEN, TAB_SCRAPE, TAB_CLICK, TAB_TYPE, TAB_READ, TAB_LIST, TAB_CLOSE, TAB_WAIT, BROWSE
+
+**Skills:** SKILL_CREATE, SKILL_SEARCH, SKILL_RECALL, SKILL_IMPROVE, SKILL_LIST
+
+**Scheduler:** SCHEDULE_TASK, SCHEDULE_LIST, SCHEDULE_CANCEL
+
+**Multi-Agent:** SPAWN_AGENT, AGENT_MSG, ASSIGN_TASK, AGENT_LIST, AGENT_DONE
+
+**Email:** EMAIL_NOTIFY, EMAIL_REPORT, EMAIL_CHECK
+
+**Session:** SESSION_COMPLETE
+
+## Quick Start (5 minutes)
+
+### 1. Set up Google Cloud Project
+
+1. Go to [Google Cloud Console](https://console.cloud.google.com)
+2. Create a new project (or use existing)
+3. Enable these APIs:
+   - Google Docs API
+   - Google Sheets API
+   - Google Drive API
+   - Google Calendar API
+   - Gmail API
+
+### 2. Create OAuth Credentials
+
+1. Go to APIs & Services → Credentials
+2. Click "Create Credentials" → "OAuth client ID"
+3. Select "Chrome Extension" as application type
+4. Name it "AgentOS Extension"
+5. For Item ID: load the extension first (step 3), then come back
+
+### 3. Install Extension
+
+1. Clone this repo: `git clone https://github.com/nickberger1993-ai/agentos.git`
+2. Open `chrome://extensions` in Chrome
+3. Enable "Developer mode" (top right)
+4. Click "Load unpacked" → select the `extension` folder
+5. Copy your extension ID from the extensions page
+6. Go back to Google Cloud → update the Chrome Extension OAuth with your extension ID
+7. Copy the Client ID from Google Cloud
+8. Edit `extension/manifest.json` → replace the `client_id` value under `oauth2`
+
+### 4. Connect & Go
+
+1. Click the AgentOS icon in Chrome toolbar
+2. Click "Connect Google" — authorize all permissions
+3. Extension auto-creates your SOUL Doc + Database Sheet
+4. Open any AI chat (ChatGPT, Claude, Gemini)
+5. Click "Start Session" — the AI becomes autonomous
+
+## Architecture
 
 ```
-Session Start
-  |
-  v
-Extension reads Doc + Sheet + Calendar + Gmail
-  |
-  v
-Builds context-rich prompt with memory + skills + schedule
-  |
-  v
-Injects into AI chat -> Auto-sends
-  |
-  v
-AI reads state -> Outputs command tags
-  |
-  v
-Extension executes (browse, write, schedule, email, spawn agents)
-  |
-  v
-Results injected back as [RESULT] message
-  |
-  v
-AI sees result -> Continues to next task
-  |
-  v
-LOOP REPEATS until [SESSION_COMPLETE]
-  |
-  v
-Extension writes summary to Doc + Sheet
-  |
-  v
-Next session picks up where it left off
+┌─────────────────────────────────────────────────┐
+│                  Chrome Extension                │
+│                                                  │
+│  popup.html/js ← User controls (connect, start) │
+│  content.js   ← Tag scanner + result injection   │
+│  background.js ← Message router + API calls      │
+│                                                  │
+│  skills.js     ← Google Docs skill management    │
+│  scheduler.js  ← Google Calendar scheduling      │
+│  multiagent.js ← Google Drive agent spawning     │
+│  gateway.js    ← Gmail messaging gateway         │
+│  templates.js  ← 8 pre-built agent templates     │
+└─────────────────────────────────────────────────┘
+         │              │              │
+    Google Docs    Google Sheets   Google Calendar
+    (Memory+Skills) (Database)     (Scheduler)
+         │              │              │
+    Google Drive      Gmail       Any Chat AI
+    (Sub-agents)   (Messaging)   (BYO-LLM)
 ```
 
-## 35+ Command Tags
+## Google-Native Feature Map
 
-The AI agent uses these tags - the extension executes them automatically:
+| Feature | Google Service | How It Works |
+|---------|---------------|-------------|
+| SOUL Memory | Google Docs | Main doc stores identity, tasks, notes, session logs |
+| Database | Google Sheets | 6 tabs: Sessions, Skills, Agents, Messages, Tasks, Data |
+| Skills/Plugins | Google Docs | Each skill = one Doc, searchable via Drive API |
+| Scheduler | Google Calendar | Calendar events with task descriptions |
+| Messaging | Gmail | Send notifications, reports, check inbox |
+| Multi-Agent | Google Drive | Each sub-agent = Doc+Sheet pair |
+| Auth | Google OAuth | One-click sign-in via Chrome Identity API |
+| Templates | Built-in | 8 pre-configured agent types |
 
-### Memory Tools
-| Tag | What It Does |
-|---|---|
-| `[SAVE_NOTE\|text]` | Save to memory doc |
-| `[SHEET_WRITE\|range\|data]` | Write to database |
-| `[SHEET_READ\|range]` | Read from database |
-| `[SHEET_APPEND\|data]` | Append row to database |
-| `[TASK_DONE]` | Mark current task complete |
-| `[ADD_TASK\|task]` | Add new task to TODO |
-| `[SKIP\|reason]` | Skip task with reason |
+## File Structure
 
-### Browser Control
-| Tag | What It Does |
-|---|---|
-| `[TAB_OPEN\|url]` | Open browser tab |
-| `[TAB_SCRAPE\|selector]` | Scrape page content |
-| `[TAB_CLICK\|selector]` | Click element |
-| `[TAB_TYPE\|selector\|text]` | Type into form |
-| `[TAB_READ]` | Read full page text |
-| `[TAB_LIST]` | List all open tabs |
-| `[TAB_CLOSE\|tabId]` | Close a tab |
-| `[TAB_WAIT\|seconds]` | Wait before next action |
-| `[BROWSE\|url]` | Quick browse and summarize |
-
-### Skills System
-| Tag | What It Does |
-|---|---|
-| `[SKILL_CREATE\|name\|category\|...]` | Create reusable skill |
-| `[SKILL_SEARCH\|query]` | Find relevant skills |
-| `[SKILL_RECALL\|docId]` | Load skill content |
-| `[SKILL_IMPROVE\|docId\|note]` | Improve existing skill |
-| `[SKILL_LIST]` | List all skills |
-
-### Scheduler (Google Calendar)
-| Tag | What It Does |
-|---|---|
-| `[SCHEDULE_TASK\|title\|time\|recurrence]` | Schedule future task |
-| `[SCHEDULE_LIST]` | List upcoming tasks |
-| `[SCHEDULE_CANCEL\|eventId]` | Cancel scheduled task |
-
-### Multi-Agent
-| Tag | What It Does |
-|---|---|
-| `[SPAWN_AGENT\|name\|role]` | Create sub-agent (new Doc+Sheet) |
-| `[AGENT_MSG\|name\|message]` | Send message to agent |
-| `[ASSIGN_TASK\|name\|task]` | Delegate task to agent |
-| `[AGENT_LIST]` | List all agents |
-| `[AGENT_DONE\|summary]` | Report completion |
-
-### Email Gateway (Gmail)
-| Tag | What It Does |
-|---|---|
-| `[EMAIL_NOTIFY\|to\|subject\|body]` | Send email |
-| `[EMAIL_REPORT\|to]` | Send daily report |
-| `[EMAIL_CHECK]` | Check inbox for tasks |
-
-### Session
-| Tag | What It Does |
-|---|---|
-| `[SESSION_COMPLETE]` | End session, write summary |
-
-## Quick Start
-
-1. Clone this repo or download the `extension/` folder
-2. Go to `chrome://extensions` > Enable Developer Mode > Load Unpacked > select `extension/`
-3. Open ChatGPT, Claude, or Gemini
-4. Click the AgentOS extension icon
-5. Click **Connect Google** (one-time OAuth consent)
-6. AgentOS auto-creates your Doc, Sheet, Calendar, and Gmail label
-7. Click **Start Session** - the agent takes over
-
-That's it. No servers. No API keys. No Docker. No Python.
+```
+extension/
+├── manifest.json    ← v4.0.0, MV3 with all Google API scopes
+├── background.js    ← Service worker: auto-provision + message router
+├── content.js       ← Content script: tag scanner + 34 command handlers
+├── content.css      ← UI styles for floating badge/panel
+├── popup.html       ← Extension popup: one-click connect UI
+├── popup.js         ← Popup logic: OAuth flow + session controls
+├── skills.js        ← Skills module: create, search, recall, improve
+├── scheduler.js     ← Scheduler module: Calendar API integration
+├── multiagent.js    ← Multi-agent module: spawn, message, assign
+├── gateway.js       ← Email gateway: send, check, report via Gmail
+└── templates.js     ← 8 agent templates (researcher, coder, etc.)
+```
 
 ## Agent Templates
 
-Deploy a pre-built agent in one click. Each template creates a full Doc + Sheet pair:
-
-| Template | Category | What It Does |
-|---|---|---|
-| Task Manager | Productivity | Daily priorities, deadlines, reminders |
-| Code Reviewer | Development | PR review, security scanning, code quality |
-| Content Writer | Marketing | Blog posts, SEO content, social copy |
-| Lead Tracker | Business | Lead scoring, pipeline, follow-ups |
-| Daily Assistant | Personal | Morning briefings, schedule, habits |
-| Researcher | Research | Web research, data collection, reports |
-| Site Monitor | DevOps | Uptime checks, performance alerts |
-| Product Tracker | E-Commerce | Price tracking, competitor monitoring |
-
-## Works With Any AI
-
-- **Claude** (Anthropic)
-- **ChatGPT** (OpenAI)
-- **Gemini** (Google)
-- Any AI that runs in a browser chat
-
-AgentOS is a BYO-LLM framework. You provide the brain, we provide the operating system.
-
-## The Google-Native Architecture
-
-Every feature maps to a free Google service. No servers needed.
-
-| Feature | OpenClaw Uses | AgentOS Uses |
-|---|---|---|
-| Agent Memory | SOUL.md file | Google Doc |
-| Database | SQLite/Postgres | Google Sheets |
-| Skills | File system | Google Docs (one per skill) |
-| Scheduler | Cron/systemd | Google Calendar |
-| Messaging | Telegram/Discord/Slack | Gmail |
-| Multi-Agent | Docker containers | Google Drive (Doc+Sheet pairs) |
-| Templates | SOUL.md files | Pre-built Docs |
-| Auth | API keys | Google OAuth |
-| Execution | Terminal/SSH | Chrome Extension |
-
-**Result:** Anyone with a Google account can run an AI agent. No technical setup.
-
-## Features
-
-- **Autonomous Loop** - AI works independently with real feedback
-- **Skills System** - Agent creates, recalls, and improves learned procedures
-- **Task Scheduler** - Google Calendar as cron jobs for the agent
-- **Multi-Agent Teams** - Spawn sub-agents, delegate tasks, coordinate work
-- **Email Gateway** - Receive tasks via email, send reports back
-- **8 Agent Templates** - One-click deploy for any role
-- **Persistent Memory** - Remembers everything across sessions
-- **Session Management** - Start/end sessions, track actions, log everything
-- **Browser Automation** - Open tabs, click, type, scrape
-- **35+ Command Tags** - Full tool suite for any task
-- **Auto-Provisioning** - Connect Google, everything generates automatically
-- **Free Forever** - No tiers, no server, MIT licensed
-
-## Project Structure
-
-```
-agentos/
-|-- extension/
-|   |-- manifest.json        # Chrome extension config (MV3, v4.0)
-|   |-- background.js        # Service worker + auto-provisioning
-|   |-- content.js           # Chat bridge + command tag executor
-|   |-- content.css          # UI overlay styles
-|   |-- popup.html           # Extension popup UI
-|   |-- popup.js             # Popup logic + session control
-|   |-- skills.js            # Skills system (Google Docs)
-|   |-- scheduler.js         # Task scheduler (Google Calendar)
-|   |-- multiagent.js        # Multi-agent orchestration (Drive)
-|   |-- gateway.js           # Email gateway (Gmail)
-|   |-- templates.js         # 8 pre-built agent templates
-|-- index.html               # Landing page
-|-- setup.html               # Setup wizard
-|-- callback.html            # OAuth callback
-|-- README.md
-|-- LICENSE
-```
+1. **Research Agent** — Web research with source tracking
+2. **Code Agent** — Software development assistant
+3. **Writer Agent** — Content creation and editing
+4. **Data Agent** — Spreadsheet analysis and reporting
+5. **Social Agent** — Social media management
+6. **Support Agent** — Customer service automation
+7. **Sales Agent** — Lead tracking and outreach
+8. **Ops Agent** — DevOps and system monitoring
 
 ## Roadmap
 
-- [x] Landing page
-- [x] Setup wizard
-- [x] Google OAuth integration
-- [x] Auto-read/write Google Docs
-- [x] Google Sheets integration
-- [x] Chrome Extension bridge
-- [x] Command tag system (35+ tags)
-- [x] Browser control (8 TAB commands)
-- [x] Autonomous feedback loop
-- [x] Session management
-- [x] Session logging
-- [x] Memory recall across sessions
-- [x] Session complete detection
-- [x] Skills system (learn, create, recall, improve)
-- [x] Task scheduler (Google Calendar)
-- [x] Multi-agent support (spawn, message, delegate)
-- [x] Email gateway (Gmail)
-- [x] Agent templates (8 roles)
-- [x] Auto-provisioning (one-click setup)
+- [x] Core feedback loop (v1-v3)
+- [x] 34 command tags (v4)
+- [x] Skills system via Google Docs
+- [x] Google Calendar scheduler
+- [x] Gmail messaging gateway
+- [x] Multi-agent coordination via Drive
+- [x] One-click auto-provisioning
+- [x] 8 agent templates
 - [ ] Visual workflow builder
-- [ ] Mobile companion (PWA)
+- [ ] Mobile companion PWA
 - [ ] Community skill marketplace
 - [ ] Voice interface
+- [ ] Chrome Web Store publication
 
 ## Contributing
 
-AgentOS is open source. Contributions welcome.
-
-1. Fork the repo
-2. Create a feature branch
-3. Make your changes
-4. Submit a PR
+PRs welcome. The architecture is modular — add new command tags in content.js and their handlers in background.js.
 
 ## License
 
-MIT License. See [LICENSE](LICENSE) for details.
+MIT
 
----
-
-**Built for everyone. Free forever. Just a Google account.**
-
-[Live Demo](https://nickberger1993-ai.github.io/agentos/) | [Setup Guide](https://nickberger1993-ai.github.io/agentos/setup.html)# AgentOS
-
-> Turn any AI into an autonomous agent. The open-source operating system for AI agents using Google Docs + Sheets + Chrome Extension.
-
-[![Live Demo](https://img.shields.io/badge/demo-live-blue)](https://nickberger1993-ai.github.io/agentos/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
-[![Price: Free](https://img.shields.io/badge/price-free-brightgreen)](https://nickberger1993-ai.github.io/agentos/setup.html)
-[![Version](https://img.shields.io/badge/version-3.0.0-orange)](https://github.com/nickberger1993-ai/agentos)
-
-## The Problem
-
-Every time you start a new session with an AI, it forgets everything. You re-explain your project, your preferences, your progress. It's like hiring a new employee every day.
-
-And even when the AI remembers — it can't DO anything. It can't browse the web, write to a database, or work autonomously on tasks.
-
-## The Solution
-
-AgentOS turns any AI chat into a fully autonomous agent with:
-
-- **Persistent Memory** via Google Docs — remembers across sessions
-- **Structured Database** via Google Sheets — logs every action
-- **Real Browser Control** via Chrome Extension — browses, clicks, types, scrapes
-- **Autonomous Feedback Loop** — AI acts, sees results, keeps working
-
-**Your AI reads its memory doc > picks up tasks > executes via command tags > extension does the work > injects results back > AI continues > session ends > memory saved.**
-
-**100% free. No server. No API keys. Just a Chrome extension + Google account.**
-
-## How It Works
-
-AgentOS has 3 components:
-
-| Component | Role |
-|-----------|------|
-| **Google Doc** | Agent memory — SOUL, TODO/DONE, notes, session log |
-| **Google Sheet** | Structured database — session logs, research data |
-| **Chrome Extension** | Bridge between AI chat and Google APIs + browser control |
-
-### The Autonomous Loop
-
-\`\`\`
-Start Session
-  > Extension reads Doc + Sheet (memory recall)
-  > Builds session prompt with context
-  > Injects into AI chat > auto-sends
-  > AI responds with command tags
-  > Extension executes them (browse, write, click...)
-  > Results injected back as [RESULT] messages
-  > AI sees results > continues working
-  > Loop repeats until tasks done
-  > [SESSION_COMPLETE] > summary saved to Doc + Sheet
-  > Next session picks up where it left off
-\`\`\`
-
-## Available Tools
-
-The AI agent can use these command tags — the extension executes them automatically:
-
-### Memory Tools
-| Tag | What it does |
-|-----|-------------|
-| \`[TASK_DONE: task]\` | Marks a task as complete |
-| \`[ADD_TASK: task]\` | Adds a new task to TODO |
-| \`[SKIP: task | reason]\` | Skips a task with reason |
-| \`[SAVE_NOTE: text]\` | Saves a note to the doc |
-| \`[BROWSE: url]\` | Fetches a webpage |
-| \`[SHEET_WRITE: range | data]\` | Writes to Google Sheet |
-| \`[SHEET_READ: range]\` | Reads from Google Sheet |
-| \`[SHEET_APPEND: range | data]\` | Appends rows to Sheet |
-
-### Browser Control
-| Tag | What it does |
-|-----|-------------|
-| \`[TAB_OPEN: url]\` | Opens URL in a real browser tab |
-| \`[TAB_SCRAPE: tabId]\` | Scrapes text from a tab |
-| \`[TAB_CLICK: tabId | selector]\` | Clicks an element |
-| \`[TAB_TYPE: tabId | selector | text]\` | Types into an input |
-| \`[TAB_READ: tabId]\` | Lists interactive elements |
-| \`[TAB_LIST]\` | Lists all open tabs |
-| \`[TAB_CLOSE: tabId]\` | Closes a tab |
-| \`[TAB_WAIT: ms]\` | Waits before next action |
-
-### Session Control
-| Tag | What it does |
-|-----|-------------|
-| \`[SESSION_COMPLETE: summary]\` | Ends session, saves summary |
-
-## Quick Start
-
-1. Clone this repo or download the \`extension/\` folder
-2. Go to \`chrome://extensions\` > Enable Developer Mode > Load Unpacked > select \`extension/\`
-3. Create a Google Doc with the AgentOS template (see [setup wizard](https://nickberger1993-ai.github.io/agentos/setup.html))
-4. Create a Google Sheet for structured data
-5. Open ChatGPT, Claude, or Gemini
-6. Click the AgentOS extension icon > paste Doc URL > Connect
-7. Paste Sheet URL > Connect
-8. Click **Start Session** — the agent takes over
-
-## Works With Any AI
-
-- **Claude** (Anthropic)
-- **ChatGPT** (OpenAI)
-- **Gemini** (Google)
-- **Any LLM** that runs in a browser chat
-
-AgentOS is a BYO-LLM framework. You provide the brain, we provide the operating system.
-
-## Features
-
-- **Autonomous Agent Loop** — AI works independently with feedback loop
-- **Persistent Memory** — Remembers everything across sessions via Google Docs
-- **Session Management** — Start/end sessions, track actions, log everything
-- **Sheet Logging** — Every action logged to Google Sheets with timestamps
-- **Memory Recall** — New sessions load context from previous sessions
-- **Browser Control** — Open tabs, click, type, scrape — real browser automation
-- **Self-Updating** — AI updates its own memory after every task
-- **Session Complete** — AI decides when to stop, writes summary
-- **100% Free** — No tiers, no server, no API keys, MIT licensed
-
-## Google Doc Structure
-
-The memory document uses this structure:
-
-\`\`\`
-== SOUL ==           > Agent identity and rules
-== AVAILABLE TAGS == > All command tags the agent can use
-== RULES ==          > Operating rules for the agent
-== RESPONSE FORMAT ==> How the agent should respond
-== LIVE LINKS ==     > Important resources
-== WHAT'S NEXT ==    > Current priorities
-== TODO ==           > Task queue ([ ] uncompleted tasks)
-== DONE ==           > Completed tasks ([x] done, [SKIPPED])
-== NOTES ==          > Agent's findings and notes
-== SESSION LOG ==    > History of past sessions
-\`\`\`
-
-## Project Structure
-
-\`\`\`
-agentos/
-|-- extension/
-|   |-- manifest.json    # Chrome extension config (MV3)
-|   |-- background.js    # Session engine, Google APIs, browser control
-|   |-- content.js       # Tag scanner, feedback loop, chat injection
-|   |-- content.css      # AgentOS badge and notification styles
-|   |-- popup.html       # Extension popup UI
-|   |-- popup.js         # Popup logic and session management
-|-- index.html           # Landing page
-|-- setup.html           # Setup wizard
-|-- callback.html        # OAuth callback
-|-- README.md            # This file
-|-- LICENSE              # MIT License
-\`\`\`
-
-## Roadmap
-
-- [x] Landing page
-- [x] Setup wizard
-- [x] Starter prompt generator
-- [x] Google OAuth integration
-- [x] Auto-read/write Google Docs via API
-- [x] Google Sheets integration
-- [x] Chrome Extension bridge
-- [x] Command tag system (18 tags)
-- [x] Browser control (TAB_OPEN, CLICK, TYPE, SCRAPE, READ, LIST, CLOSE, WAIT)
-- [x] Autonomous feedback loop
-- [x] Session management (start/end/track)
-- [x] Session logging to Google Sheets
-- [x] Memory recall from previous sessions
-- [x] Session complete detection
-- [ ] Multi-agent support
-- [ ] Agent marketplace
-- [ ] Visual workflow builder
-- [ ] Mobile companion app
-
-## Contributing
-
-AgentOS is open source. Contributions welcome.
-
-1. Fork the repo
-2. Create a feature branch
-3. Make your changes
-4. Submit a PR
-
-## License
-
-MIT License. See [LICENSE](LICENSE) for details.
-
-## Links
-
-- [Live Site](https://nickberger1993-ai.github.io/agentos/)
-- [Setup Wizard](https://nickberger1993-ai.github.io/agentos/setup.html)
-
----
-
-Built with persistence in mind. Free forever.
