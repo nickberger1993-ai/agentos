@@ -1,8 +1,6 @@
-// AgentOS Bridge - Content Script v4.0.0
-// Full autonomous agent loop with Skills, Scheduler, Multi-Agent, Email Gateway
-// Tags: TASK_DONE, ADD_TASK, SKIP, BROWSE, SAVE_NOTE, SHEET_*, TAB_*,
-// SKILL_*, SCHEDULE_*, SPAWN_AGENT, AGENT_MSG, ASSIGN_TASK, AGENT_LIST, AGENT_DONE,
-// EMAIL_NOTIFY, EMAIL_REPORT, EMAIL_CHECK, SESSION_COMPLETE
+// AgentOS Bridge - Content Script v4.1.0
+// KEY CHANGE: Session start now reads SOUL Doc + Sheet + Skills
+// and builds a full context prompt before injecting into AI chat
 
 (function() {
   'use strict';
@@ -22,6 +20,7 @@
   var loopTimer = null;
   var sessionActive = false;
   var loopCount = 0;
+  var tagCount = 0;
   var currentSessionId = null;
 
   // ═══════════════════════════════════════════
@@ -34,32 +33,27 @@
     container.id = 'agentos-container';
     container.style.cssText = 'position:fixed;bottom:20px;right:20px;z-index:99999;font-family:system-ui,-apple-system,sans-serif;';
 
-    // Status badge
     statusBadge = document.createElement('div');
     statusBadge.id = 'agentos-badge';
     statusBadge.style.cssText = 'background:#1a1a2e;color:#00d4ff;padding:8px 16px;border-radius:20px;font-size:13px;cursor:pointer;box-shadow:0 4px 20px rgba(0,212,255,0.3);border:1px solid #00d4ff33;display:flex;align-items:center;gap:8px;transition:all 0.3s;';
     statusBadge.innerHTML = '<span style="width:8px;height:8px;border-radius:50%;background:#666;display:inline-block;" id="agentos-dot"></span><span id="agentos-status">AgentOS</span>';
 
-    // Controls panel (hidden by default)
     var panel = document.createElement('div');
     panel.id = 'agentos-panel';
     panel.style.cssText = 'display:none;background:#1a1a2e;border:1px solid #00d4ff33;border-radius:12px;padding:12px;margin-bottom:8px;min-width:220px;box-shadow:0 8px 32px rgba(0,0,0,0.4);';
 
-    // Loop toggle button
     loopBtn = document.createElement('button');
     loopBtn.id = 'agentos-loop-btn';
     loopBtn.style.cssText = 'width:100%;padding:8px;border:1px solid #00d4ff55;background:transparent;color:#00d4ff;border-radius:8px;cursor:pointer;font-size:12px;margin-bottom:6px;transition:all 0.2s;';
     loopBtn.textContent = '\u25B6 Start Loop';
     loopBtn.onclick = toggleLoop;
 
-    // Session button
     sessionBtn = document.createElement('button');
     sessionBtn.id = 'agentos-session-btn';
     sessionBtn.style.cssText = 'width:100%;padding:8px;border:1px solid #22c55e55;background:transparent;color:#22c55e;border-radius:8px;cursor:pointer;font-size:12px;margin-bottom:6px;transition:all 0.2s;';
     sessionBtn.textContent = '\u26A1 Start Session';
     sessionBtn.onclick = toggleSession;
 
-    // Stats display
     var stats = document.createElement('div');
     stats.id = 'agentos-stats';
     stats.style.cssText = 'color:#888;font-size:11px;text-align:center;padding-top:6px;border-top:1px solid #333;';
@@ -76,7 +70,6 @@
       panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
     };
 
-    // Check connection
     chrome.runtime.sendMessage({ type: 'getState' }, function(resp) {
       if (resp && resp.connected) {
         isConnected = true;
@@ -93,18 +86,18 @@
     if (!dot || !status) return;
     status.textContent = text;
     if (state === 'connected') { dot.style.background = '#22c55e'; }
-    else if (state === 'working') { dot.style.background = '#f59e0b'; dot.style.animation = 'pulse 1s infinite'; }
+    else if (state === 'working') { dot.style.background = '#f59e0b'; }
     else if (state === 'error') { dot.style.background = '#ef4444'; }
     else { dot.style.background = '#666'; }
   }
 
-  function updateStats(loops, tags) {
+  function updateStats() {
     var stats = document.getElementById('agentos-stats');
-    if (stats) stats.textContent = 'Loops: ' + loops + ' | Tags: ' + tags;
+    if (stats) stats.textContent = 'Loops: ' + loopCount + ' | Tags: ' + tagCount;
   }
 
   // ═══════════════════════════════════════════
-  // SESSION MANAGEMENT
+  // SESSION MANAGEMENT - THE KEY PART
   // ═══════════════════════════════════════════
   function toggleSession() {
     if (sessionActive) {
@@ -120,11 +113,106 @@
     sessionBtn.textContent = '\u23F9 End Session';
     sessionBtn.style.borderColor = '#ef444455';
     sessionBtn.style.color = '#ef4444';
-    chrome.runtime.sendMessage({ type: 'startSession', sessionId: currentSessionId });
-    updateUI('working', 'Session Active');
+    updateUI('working', 'Loading context...');
 
-    // Inject session start prompt
-    injectMessage('[SESSION START] ID: ' + currentSessionId + ' | Read your SOUL doc and current tasks. Begin autonomous work. Use command tags to take actions.');
+    // THIS IS THE KEY: Ask background.js to read SOUL doc + Sheet + Skills
+    // and return everything so we can build a full prompt
+    chrome.runtime.sendMessage({ type: 'buildContext' }, function(resp) {
+      if (chrome.runtime.lastError || !resp || !resp.success) {
+        var errMsg = (resp && resp.error) ? resp.error : 'Failed to load context';
+        updateUI('error', 'Context error');
+        injectMessage('[AgentOS] Error loading context: ' + errMsg + '. Please check your connection.');
+        return;
+      }
+
+      // Build the full context prompt from SOUL doc + sheet data + skills
+      var prompt = buildSessionPrompt(resp.data, currentSessionId);
+
+      chrome.runtime.sendMessage({ type: 'startSession', sessionId: currentSessionId });
+      updateUI('working', 'Session Active');
+
+      // Inject the full context prompt into the AI chat
+      injectMessage(prompt);
+    });
+  }
+
+  function buildSessionPrompt(ctx, sessionId) {
+    var p = '';
+    p += '=== AGENTOS SESSION START ===\n';
+    p += 'Session ID: ' + sessionId + '\n';
+    p += 'Time: ' + new Date().toLocaleString() + '\n\n';
+
+    // SOUL / Identity from the Doc
+    if (ctx.soul) {
+      p += '--- YOUR MEMORY (from your SOUL Doc) ---\n';
+      p += ctx.soul.substring(0, 4000);
+      p += '\n\n';
+    }
+
+    // Current tasks from Sheet
+    if (ctx.tasks && ctx.tasks.length > 0) {
+      p += '--- YOUR CURRENT TASKS ---\n';
+      ctx.tasks.forEach(function(row) {
+        p += '- ' + row.join(' | ') + '\n';
+      });
+      p += '\n';
+    } else {
+      p += '--- YOUR CURRENT TASKS ---\n';
+      p += '(No tasks yet. Add some with [ADD_TASK: description])\n\n';
+    }
+
+    // Recent sessions
+    if (ctx.sessions && ctx.sessions.length > 0) {
+      p += '--- RECENT SESSIONS ---\n';
+      ctx.sessions.slice(-3).forEach(function(row) {
+        p += '- ' + row.join(' | ') + '\n';
+      });
+      p += '\n';
+    }
+
+    // Available skills
+    if (ctx.skills && ctx.skills.length > 0) {
+      p += '--- YOUR SKILLS ---\n';
+      ctx.skills.forEach(function(row) {
+        p += '- ' + row.join(' | ') + '\n';
+      });
+      p += '\n';
+    }
+
+    // Active agents
+    if (ctx.agents && ctx.agents.length > 0) {
+      p += '--- ACTIVE AGENTS ---\n';
+      ctx.agents.forEach(function(row) {
+        p += '- ' + row.join(' | ') + '\n';
+      });
+      p += '\n';
+    }
+
+    // Instructions
+    p += '--- INSTRUCTIONS ---\n';
+    p += 'You are an autonomous AI agent running on AgentOS. ';
+    p += 'You have persistent memory (the SOUL doc above), a database (Google Sheets), ';
+    p += 'and can take real actions using command tags.\n\n';
+    p += 'AVAILABLE COMMAND TAGS:\n';
+    p += 'Memory: [SAVE_NOTE: text] [SHEET_WRITE: tab|range|data] [SHEET_READ: tab|range] ';
+    p += '[SHEET_APPEND: tab|data] [TASK_DONE: task] [ADD_TASK: task] [SKIP: reason]\n';
+    p += 'Browser: [TAB_OPEN: url] [TAB_SCRAPE: url] [BROWSE: query] [TAB_READ] [TAB_LIST]\n';
+    p += 'Skills: [SKILL_CREATE: name|content] [SKILL_SEARCH: query] [SKILL_RECALL: name] [SKILL_LIST]\n';
+    p += 'Schedule: [SCHEDULE_TASK: name|when|action] [SCHEDULE_LIST] [SCHEDULE_CANCEL: name]\n';
+    p += 'Agents: [SPAWN_AGENT: name|role] [AGENT_MSG: name|msg] [AGENT_LIST]\n';
+    p += 'Email: [EMAIL_NOTIFY: to|subject|body] [EMAIL_CHECK]\n';
+    p += 'Session: [SESSION_COMPLETE: summary]\n\n';
+    p += 'RULES:\n';
+    p += '1. Read your memory above. Continue where you left off.\n';
+    p += '2. Work on your TODO tasks. Use command tags to take real actions.\n';
+    p += '3. After each action, wait for the [RESULT] before continuing.\n';
+    p += '4. Save important findings with [SAVE_NOTE: ...].\n';
+    p += '5. Mark completed tasks with [TASK_DONE: task].\n';
+    p += '6. When done, use [SESSION_COMPLETE: summary of what you did].\n\n';
+    p += 'Begin autonomous work now. What is your first action?\n';
+    p += '=== END CONTEXT ===';
+
+    return p;
   }
 
   function endSession() {
@@ -157,7 +245,7 @@
   function runLoop() {
     if (!autoLoopEnabled || !sessionActive) return;
     loopCount++;
-    updateStats(loopCount, Object.keys(processedTasks).length);
+    updateStats();
     scanAllNodes();
     loopTimer = setTimeout(runLoop, 3000);
   }
@@ -308,6 +396,8 @@
       var now = Date.now();
       if (processedTasks[tagKey] && (now - processedTasks[tagKey]) < DEDUP_WINDOW) continue;
       processedTasks[tagKey] = now;
+      tagCount++;
+      updateStats();
       try {
         callback(match);
       } catch (e) {
@@ -333,7 +423,7 @@
   }
 
   // ═══════════════════════════════════════════
-  // RESULT INJECTION
+  // RESULT INJECTION - Feeds results back to AI
   // ═══════════════════════════════════════════
   function injectResult(type, data) {
     var resultText = '[RESULT:' + type + '] ';
@@ -350,16 +440,16 @@
   }
 
   function injectMessage(text) {
-    // Find the chat input and inject
     var selectors = [
+      '#prompt-textarea',
       'textarea[placeholder*="message"]',
       'textarea[placeholder*="Message"]',
       'textarea[placeholder*="Send"]',
       'textarea[placeholder*="Ask"]',
       'textarea[placeholder*="Type"]',
-      '#prompt-textarea',
       'div[contenteditable="true"][role="textbox"]',
       'div[contenteditable="true"][class*="input"]',
+      'div[contenteditable="true"][class*="ProseMirror"]',
       'textarea[data-id]',
       'textarea'
     ];
@@ -376,36 +466,35 @@
       return;
     }
 
-    // Handle textarea
     if (input.tagName === 'TEXTAREA') {
       var nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set;
       nativeSetter.call(input, text);
       input.dispatchEvent(new Event('input', { bubbles: true }));
-    }
-    // Handle contenteditable
-    else if (input.contentEditable === 'true') {
+      input.dispatchEvent(new Event('change', { bubbles: true }));
+    } else if (input.contentEditable === 'true') {
       input.focus();
-      input.textContent = text;
+      // For ProseMirror / contenteditable (Claude, ChatGPT new UI)
+      input.innerHTML = '';
+      var p = document.createElement('p');
+      p.textContent = text;
+      input.appendChild(p);
       input.dispatchEvent(new Event('input', { bubbles: true }));
     }
 
     // Auto-send if loop is active
     if (autoLoopEnabled) {
-      setTimeout(function() {
-        autoSend();
-      }, 500);
+      setTimeout(function() { autoSend(); }, 800);
     }
   }
 
   function autoSend() {
-    // Try clicking send button
     var sendSelectors = [
       'button[data-testid="send-button"]',
-      'button[aria-label="Send"]',
-      'button[aria-label="Send message"]',
+      'button[aria-label*="Send"]',
+      'button[aria-label*="send"]',
       'button[class*="send"]',
-      'button[type="submit"]',
-      'form button:last-of-type'
+      'button[class*="Send"]',
+      'form button[type="submit"]'
     ];
 
     for (var i = 0; i < sendSelectors.length; i++) {
@@ -416,23 +505,27 @@
       }
     }
 
-    // Fallback: try Enter key
-    var input = document.querySelector('textarea') || document.querySelector('div[contenteditable="true"]');
+    // Fallback: Enter key
+    var input = document.querySelector('#prompt-textarea') ||
+                document.querySelector('textarea') ||
+                document.querySelector('div[contenteditable="true"]');
     if (input) {
-      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', keyCode: 13, bubbles: true }));
+      input.dispatchEvent(new KeyboardEvent('keydown', {
+        key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true
+      }));
     }
   }
 
   function showFloatingResult(text) {
     var toast = document.createElement('div');
-    toast.style.cssText = 'position:fixed;top:20px;right:20px;background:#1a1a2e;color:#00d4ff;padding:12px 20px;border-radius:12px;font-size:12px;z-index:99999;max-width:400px;word-wrap:break-word;border:1px solid #00d4ff33;box-shadow:0 4px 20px rgba(0,0,0,0.4);';
-    toast.textContent = text.substring(0, 300);
+    toast.style.cssText = 'position:fixed;top:20px;right:20px;background:#1a1a2e;color:#00d4ff;padding:12px 20px;border-radius:12px;font-size:12px;z-index:99999;max-width:500px;word-wrap:break-word;border:1px solid #00d4ff33;box-shadow:0 4px 20px rgba(0,0,0,0.4);white-space:pre-wrap;max-height:300px;overflow-y:auto;';
+    toast.textContent = text.substring(0, 500);
     document.body.appendChild(toast);
     setTimeout(function() {
       toast.style.opacity = '0';
       toast.style.transition = 'opacity 0.5s';
       setTimeout(function() { toast.remove(); }, 500);
-    }, 5000);
+    }, 8000);
   }
 
   // ═══════════════════════════════════════════
@@ -443,7 +536,6 @@
     mutations.forEach(function(mutation) {
       mutation.addedNodes.forEach(function(node) {
         if (node.nodeType === 1) {
-          // Check if this is a message container
           var messages = node.querySelectorAll ? node.querySelectorAll(
             '[class*="message"], [class*="response"], [class*="markdown"], [class*="prose"]'
           ) : [];
@@ -453,7 +545,6 @@
               scanNode(msg);
             }
           });
-          // Also check the node itself
           if (!processedNodes.has(node) && node.textContent && node.textContent.includes('[')) {
             processedNodes.add(node);
             scanNode(node);
@@ -466,26 +557,19 @@
   observer.observe(document.body, { childList: true, subtree: true });
 
   // ═══════════════════════════════════════════
-  // MESSAGE LISTENER - Commands from popup/background
+  // MESSAGE LISTENER
   // ═══════════════════════════════════════════
   chrome.runtime.onMessage.addListener(function(msg, sender, sendResponse) {
-    if (msg.type === 'startSession') {
-      startSession();
-      sendResponse({ ok: true });
-    } else if (msg.type === 'endSession') {
-      endSession();
-      sendResponse({ ok: true });
-    } else if (msg.type === 'toggleLoop') {
-      toggleLoop();
-      sendResponse({ ok: true });
-    } else if (msg.type === 'injectPrompt') {
-      injectMessage(msg.text);
-      sendResponse({ ok: true });
-    } else if (msg.type === 'getContentState') {
+    if (msg.type === 'startSession') { startSession(); sendResponse({ ok: true }); }
+    else if (msg.type === 'endSession') { endSession(); sendResponse({ ok: true }); }
+    else if (msg.type === 'toggleLoop') { toggleLoop(); sendResponse({ ok: true }); }
+    else if (msg.type === 'injectPrompt') { injectMessage(msg.text); sendResponse({ ok: true }); }
+    else if (msg.type === 'getContentState') {
       sendResponse({
         sessionActive: sessionActive,
         autoLoop: autoLoopEnabled,
         loopCount: loopCount,
+        tagCount: tagCount,
         sessionId: currentSessionId
       });
     }
@@ -493,15 +577,14 @@
   });
 
   // ═══════════════════════════════════════════
-  // INITIALIZATION
+  // INIT
   // ═══════════════════════════════════════════
   function init() {
     injectUI();
-    console.log('[AgentOS] Content script v4.0 loaded - Full autonomous agent loop ready');
-    console.log('[AgentOS] Tags: Memory(7) + Browser(10) + Skills(5) + Scheduler(3) + Multi-Agent(5) + Email(3) + Session(1) = 34 total');
+    console.log('[AgentOS] Content script v4.1 loaded');
+    console.log('[AgentOS] Session start now builds full context from SOUL Doc + Sheet');
   }
 
-  // Wait for page to be ready
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', init);
   } else {
@@ -509,3 +592,4 @@
   }
 
 })();
+
