@@ -38,12 +38,56 @@ var state = {
 chrome.storage.local.get(['agentosState'], function(result) {
   if (result.agentosState) {
     Object.assign(state, result.agentosState);
-    console.log('[AgentOS] State restored:', state.connected ? 'Connected' : 'Disconnected');
+    state.token = null;
+    state.tokenExpiry = 0;
+    console.log('[AgentOS] State restored:', state.connected ? 'Connected (token will refresh on first API call)' : 'Disconnected');
   }
 });
 
+// ====================================
+// GOOGLE API FETCH WRAPPER
+// Checks r.ok, parses {error}, retries 429/5xx with exponential backoff.
+// On 401, clears in-memory token so next call re-auths. Returns parsed JSON.
+// ====================================
+function gfetch(url, options, attempt) {
+  options = options || {};
+  attempt = attempt || 0;
+  return fetch(url, options).then(function(r) {
+    if (r.ok) {
+      return r.text().then(function(t) { return t ? JSON.parse(t) : {}; });
+    }
+    if ((r.status === 429 || r.status >= 500) && attempt < 3) {
+      var delay = Math.pow(2, attempt) * 500 + Math.random() * 250;
+      console.warn('[AgentOS] gfetch retry ' + (attempt+1) + '/3 for ' + r.status + ' after ' + Math.round(delay) + 'ms');
+      return new Promise(function(resolve) { setTimeout(resolve, delay); })
+        .then(function() { return gfetch(url, options, attempt + 1); });
+    }
+    if (r.status === 401) {
+      state.token = null;
+      state.tokenExpiry = 0;
+    }
+    return r.text().then(function(t) {
+      var body; try { body = JSON.parse(t); } catch(e) { body = { error: { message: t || r.statusText } }; }
+      var msg = (body.error && body.error.message) ? body.error.message : (body.error || r.statusText || ('HTTP ' + r.status));
+      var err = new Error('[' + r.status + '] ' + msg);
+      err.status = r.status;
+      err.body = body;
+      throw err;
+    });
+  });
+}
+
 function saveState() {
-  chrome.storage.local.set({ agentosState: state });
+  // Persist only durable metadata. Token is ephemeral and stays in memory.
+  var persisted = {
+    connected: state.connected,
+    docId: state.docId,
+    sheetId: state.sheetId,
+    sessionActive: state.sessionActive,
+    currentSessionId: state.currentSessionId,
+    sessionCount: state.sessionCount
+  };
+  chrome.storage.local.set({ agentosState: persisted });
 }
 
 // ====================================
@@ -131,15 +175,15 @@ function autoProvision() {
 
 function createDoc(token) {
   if (state.docId) return Promise.resolve(state.docId);
-  return fetch('https://docs.googleapis.com/v1/documents', {
+  return gfetch('https://docs.googleapis.com/v1/documents', {
     method: 'POST',
     headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
     body: JSON.stringify({ title: 'AgentOS - SOUL Memory' })
-  }).then(function(r) { return r.json(); }).then(function(doc) {
+  }).then(function(doc) {
     state.docId = doc.documentId;
     saveState();
     var soulContent = '# AgentOS SOUL\n\n## Identity\nI am an AI agent powered by AgentOS.\n\n## Goals\n- Help the user with tasks\n- Learn and improve over time\n- Use tools efficiently\n\n## Notes\n(none yet)\n\n## TODO\n- Introduce myself to the user\n\n## DONE\n(none yet)\n';
-    return fetch('https://docs.googleapis.com/v1/documents/' + doc.documentId + ':batchUpdate', {
+    return gfetch('https://docs.googleapis.com/v1/documents/' + doc.documentId + ':batchUpdate', {
       method: 'POST',
       headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
       body: JSON.stringify({ requests: [{ insertText: { location: { index: 1 }, text: soulContent } }] })
@@ -149,7 +193,7 @@ function createDoc(token) {
 
 function createSheet(token) {
   if (state.sheetId) return Promise.resolve(state.sheetId);
-  return fetch('https://sheets.googleapis.com/v4/spreadsheets', {
+  return gfetch('https://sheets.googleapis.com/v4/spreadsheets', {
     method: 'POST',
     headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -163,7 +207,7 @@ function createSheet(token) {
         { properties: { title: 'Data' } }
       ]
     })
-  }).then(function(r) { return r.json(); }).then(function(sheet) {
+  }).then(function(sheet) {
     state.sheetId = sheet.spreadsheetId;
     saveState();
     var headerRequests = [
@@ -179,7 +223,7 @@ function createSheet(token) {
 }
 
 function putSheet(token, sheetId, range, values) {
-  return fetch('https://sheets.googleapis.com/v4/spreadsheets/' + sheetId + '/values/' + range + '?valueInputOption=USER_ENTERED', {
+  return gfetch('https://sheets.googleapis.com/v4/spreadsheets/' + sheetId + '/values/' + range + '?valueInputOption=USER_ENTERED', {
     method: 'PUT',
     headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
     body: JSON.stringify({ values: values })
@@ -217,9 +261,9 @@ function buildContext() {
 
 function readDocText(token, docId) {
   if (!docId) return Promise.resolve('No SOUL doc found.');
-  return fetch('https://docs.googleapis.com/v1/documents/' + docId, {
+  return gfetch('https://docs.googleapis.com/v1/documents/' + docId, {
     headers: { 'Authorization': 'Bearer ' + token }
-  }).then(function(r) { return r.json(); }).then(function(doc) {
+  }).then(function(doc) {
     var text = '';
     if (doc.body && doc.body.content) {
       doc.body.content.forEach(function(block) {
@@ -236,9 +280,9 @@ function readDocText(token, docId) {
 
 function readSheetSafe(token, sheetId, range) {
   if (!sheetId) return Promise.resolve('(no sheet)');
-  return fetch('https://sheets.googleapis.com/v4/spreadsheets/' + sheetId + '/values/' + range, {
+  return gfetch('https://sheets.googleapis.com/v4/spreadsheets/' + sheetId + '/values/' + range, {
     headers: { 'Authorization': 'Bearer ' + token }
-  }).then(function(r) { return r.json(); }).then(function(data) {
+  }).then(function(data) {
     return data.values ? data.values.map(function(row) { return row.join(' | '); }).join('\n') : '(empty)';
   }).catch(function() { return '(error reading sheet)'; });
 }
@@ -247,11 +291,11 @@ function readSheetSafe(token, sheetId, range) {
 // GOOGLE DOCS API
 // ====================================
 function appendToDoc(token, docId, text) {
-  return fetch('https://docs.googleapis.com/v1/documents/' + docId, {
+  return gfetch('https://docs.googleapis.com/v1/documents/' + docId, {
     headers: { 'Authorization': 'Bearer ' + token }
-  }).then(function(r) { return r.json(); }).then(function(doc) {
+  }).then(function(doc) {
     var end = doc.body.content[doc.body.content.length-1].endIndex - 1;
-    return fetch('https://docs.googleapis.com/v1/documents/' + docId + ':batchUpdate', {
+    return gfetch('https://docs.googleapis.com/v1/documents/' + docId + ':batchUpdate', {
       method: 'POST',
       headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
       body: JSON.stringify({ requests: [{ insertText: { location: { index: end }, text: '\n' + text } }] })
@@ -263,25 +307,25 @@ function appendToDoc(token, docId, text) {
 // GOOGLE SHEETS API
 // ====================================
 function writeSheet(token, sheetId, range, values) {
-  return fetch('https://sheets.googleapis.com/v4/spreadsheets/' + sheetId + '/values/' + range + '?valueInputOption=USER_ENTERED', {
+  return gfetch('https://sheets.googleapis.com/v4/spreadsheets/' + sheetId + '/values/' + range + '?valueInputOption=USER_ENTERED', {
     method: 'PUT',
     headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
     body: JSON.stringify({ values: values })
-  }).then(function(r) { return r.json(); });
+  });
 }
 
 function readSheet(token, sheetId, range) {
-  return fetch('https://sheets.googleapis.com/v4/spreadsheets/' + sheetId + '/values/' + range, {
+  return gfetch('https://sheets.googleapis.com/v4/spreadsheets/' + sheetId + '/values/' + range, {
     headers: { 'Authorization': 'Bearer ' + token }
-  }).then(function(r) { return r.json(); });
+  });
 }
 
 function appendSheet(token, sheetId, range, values) {
-  return fetch('https://sheets.googleapis.com/v4/spreadsheets/' + sheetId + '/values/' + range + ':append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS', {
+  return gfetch('https://sheets.googleapis.com/v4/spreadsheets/' + sheetId + '/values/' + range + ':append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS', {
     method: 'POST',
     headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
     body: JSON.stringify({ values: values })
-  }).then(function(r) { return r.json(); });
+  });
 }
 
 function logSession(action, data) {
@@ -295,12 +339,12 @@ function logSession(action, data) {
 // SKILLS SYSTEM
 // ====================================
 function createSkillDoc(token, name, code) {
-  return fetch('https://docs.googleapis.com/v1/documents', {
+  return gfetch('https://docs.googleapis.com/v1/documents', {
     method: 'POST',
     headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
     body: JSON.stringify({ title: 'AgentOS-Skill: ' + name })
-  }).then(function(r) { return r.json(); }).then(function(doc) {
-    return fetch('https://docs.googleapis.com/v1/documents/' + doc.documentId + ':batchUpdate', {
+  }).then(function(doc) {
+    return gfetch('https://docs.googleapis.com/v1/documents/' + doc.documentId + ':batchUpdate', {
       method: 'POST',
       headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
       body: JSON.stringify({ requests: [{ insertText: { location: { index: 1 }, text: code } }] })
@@ -323,9 +367,9 @@ function recallSkill(token, name) {
     if (!data.values) return 'Skill not found: ' + name;
     var skill = data.values.find(function(r) { return r[0] === name; });
     if (!skill) return 'Skill not found: ' + name;
-    return fetch('https://docs.googleapis.com/v1/documents/' + skill[1], {
+    return gfetch('https://docs.googleapis.com/v1/documents/' + skill[1], {
       headers: { 'Authorization': 'Bearer ' + token }
-    }).then(function(r) { return r.json(); }).then(function(doc) {
+    }).then(function(doc) {
       var text = '';
       if (doc.body && doc.body.content) {
         doc.body.content.forEach(function(block) {
@@ -368,11 +412,11 @@ function createCalendarEvent(token, title, time, recurrence) {
     description: 'AgentOS scheduled task'
   };
   if (recurrence) event.recurrence = ['RRULE:FREQ=' + recurrence.toUpperCase()];
-  return fetch('https://www.googleapis.com/calendar/v3/calendars/primary/events', {
+  return gfetch('https://www.googleapis.com/calendar/v3/calendars/primary/events', {
     method: 'POST',
     headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
     body: JSON.stringify(event)
-  }).then(function(r) { return r.json(); }).then(function(e) { return 'Scheduled: ' + e.summary + ' at ' + e.start.dateTime; });
+  }).then(function(e) { return 'Scheduled: ' + e.summary + ' at ' + e.start.dateTime; });
 }
 
 function parseTime(time) {
@@ -388,20 +432,20 @@ function parseTime(time) {
 
 function listScheduledTasks(token) {
   var now = new Date().toISOString();
-  return fetch('https://www.googleapis.com/calendar/v3/calendars/primary/events?timeMin=' + now + '&maxResults=20&q=AgentOS&orderBy=startTime&singleEvents=true', {
+  return gfetch('https://www.googleapis.com/calendar/v3/calendars/primary/events?timeMin=' + now + '&maxResults=20&q=AgentOS&orderBy=startTime&singleEvents=true', {
     headers: { 'Authorization': 'Bearer ' + token }
-  }).then(function(r) { return r.json(); }).then(function(data) {
+  }).then(function(data) {
     if (!data.items || !data.items.length) return 'No scheduled tasks';
     return data.items.map(function(e) { return e.summary + ' @ ' + (e.start.dateTime || e.start.date); }).join('\n');
   });
 }
 
 function cancelScheduledTask(token, query) {
-  return fetch('https://www.googleapis.com/calendar/v3/calendars/primary/events?q=' + encodeURIComponent(query) + '&maxResults=5', {
+  return gfetch('https://www.googleapis.com/calendar/v3/calendars/primary/events?q=' + encodeURIComponent(query) + '&maxResults=5', {
     headers: { 'Authorization': 'Bearer ' + token }
-  }).then(function(r) { return r.json(); }).then(function(data) {
+  }).then(function(data) {
     if (!data.items || !data.items.length) return 'No matching events found';
-    return fetch('https://www.googleapis.com/calendar/v3/calendars/primary/events/' + data.items[0].id, {
+    return gfetch('https://www.googleapis.com/calendar/v3/calendars/primary/events/' + data.items[0].id, {
       method: 'DELETE', headers: { 'Authorization': 'Bearer ' + token }
     }).then(function() { return 'Cancelled: ' + data.items[0].summary; });
   });
@@ -412,22 +456,22 @@ function cancelScheduledTask(token, query) {
 // ====================================
 function sendEmail(token, to, subject, body) {
   var raw = btoa('To: ' + to + '\r\nSubject: ' + subject + '\r\nContent-Type: text/plain\r\n\r\n' + body).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-  return fetch('https://gmail.googleapis.com/gmail/v1/users/me/messages/send', {
+  return gfetch('https://gmail.googleapis.com/gmail/v1/users/me/messages/send', {
     method: 'POST',
     headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
     body: JSON.stringify({ raw: raw })
-  }).then(function(r) { return r.json(); }).then(function(m) { return 'Email sent (id: ' + m.id + ')'; });
+  }).then(function(m) { return 'Email sent (id: ' + m.id + ')'; });
 }
 
 function checkInbox(token) {
-  return fetch('https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=5&q=is:unread', {
+  return gfetch('https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=5&q=is:unread', {
     headers: { 'Authorization': 'Bearer ' + token }
-  }).then(function(r) { return r.json(); }).then(function(data) {
+  }).then(function(data) {
     if (!data.messages || !data.messages.length) return 'No unread emails';
     var promises = data.messages.slice(0, 3).map(function(msg) {
-      return fetch('https://gmail.googleapis.com/gmail/v1/users/me/messages/' + msg.id + '?format=metadata&metadataHeaders=Subject&metadataHeaders=From', {
+      return gfetch('https://gmail.googleapis.com/gmail/v1/users/me/messages/' + msg.id + '?format=metadata&metadataHeaders=Subject&metadataHeaders=From', {
         headers: { 'Authorization': 'Bearer ' + token }
-      }).then(function(r) { return r.json(); });
+      });
     });
     return Promise.all(promises).then(function(msgs) {
       return msgs.map(function(m) {
@@ -446,12 +490,12 @@ function checkInbox(token) {
 // MULTI-AGENT
 // ====================================
 function spawnSubAgent(token, name, soul) {
-  return fetch('https://docs.googleapis.com/v1/documents', {
+  return gfetch('https://docs.googleapis.com/v1/documents', {
     method: 'POST',
     headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
     body: JSON.stringify({ title: 'AgentOS-Agent: ' + name })
-  }).then(function(r) { return r.json(); }).then(function(doc) {
-    return fetch('https://docs.googleapis.com/v1/documents/' + doc.documentId + ':batchUpdate', {
+  }).then(function(doc) {
+    return gfetch('https://docs.googleapis.com/v1/documents/' + doc.documentId + ':batchUpdate', {
       method: 'POST',
       headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
       body: JSON.stringify({ requests: [{ insertText: { location: { index: 1 }, text: soul || 'Sub-agent: ' + name } }] })
@@ -466,11 +510,11 @@ function spawnSubAgent(token, name, soul) {
 function messageAgent(name, msg) {
   return getToken(true).then(function(token) {
     return findAgentDoc(name).then(function(id) {
-      return fetch('https://docs.googleapis.com/v1/documents/' + id, {
+      return gfetch('https://docs.googleapis.com/v1/documents/' + id, {
         headers: { 'Authorization': 'Bearer ' + token }
-      }).then(function(r) { return r.json(); }).then(function(doc) {
+      }).then(function(doc) {
         var end = doc.body.content[doc.body.content.length-1].endIndex - 1;
-        return fetch('https://docs.googleapis.com/v1/documents/' + id + ':batchUpdate', {
+        return gfetch('https://docs.googleapis.com/v1/documents/' + id + ':batchUpdate', {
           method: 'POST',
           headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
           body: JSON.stringify({ requests: [{ insertText: { location: { index: end }, text: '\n[MSG] ' + msg } }] })
