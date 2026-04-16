@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "AgentOS Bridge",
-  "version": "2.1.0",
+  "version": "3.0.0",
   "description": "Turn any AI chat into an autonomous agent with browser control. Navigate, click, type, scrape — the AI agent for everyone.",
   "permissions": [
     "storage",
