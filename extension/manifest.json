@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "AgentOS",
-  "version": "4.2.0",
+  "version": "4.3.0",
   "description": "Turn any AI into a persistent autonomous agent. Free. No server. Just Google.",
   "permissions": [
     "identity",
@@ -14,29 +14,22 @@
     "https://docs.googleapis.com/*",
     "https://sheets.googleapis.com/*",
     "https://www.googleapis.com/*",
-    "https://gmail.googleapis.com/*"
+    "https://gmail.googleapis.com/*",
+    "https://accounts.google.com/*"
   ],
-  "oauth2": {
-    "client_id": "930312309217-feg74re5infbp7ab5qkt8cusi4qmq1ue.apps.googleusercontent.com",
-    "scopes": [
-      "https://www.googleapis.com/auth/documents",
-      "https://www.googleapis.com/auth/spreadsheets",
-      "https://www.googleapis.com/auth/drive.file",
-      "https://www.googleapis.com/auth/calendar",
-      "https://www.googleapis.com/auth/gmail.send",
-      "https://www.googleapis.com/auth/gmail.readonly",
-      "https://www.googleapis.com/auth/userinfo.email"
-    ]
-  },
   "background": {
     "service_worker": "background.js"
   },
   "content_scripts": [
     {
-      "matches": ["<all_urls>"],
+      "matches": [
+        "https://chatgpt.com/*",
+        "https://chat.openai.com/*",
+        "https://claude.ai/*",
+        "https://gemini.google.com/*"
+      ],
       "js": ["content.js"],
-      "css": ["content.css"],
-      "run_at": "document_idle"
+      "css": ["content.css"]
     }
   ],
   "action": {
