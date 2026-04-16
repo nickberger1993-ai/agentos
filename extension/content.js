@@ -1,7 +1,9 @@
-// AgentOS Bridge - Content Script v2.1.0
-// Browser Control Engine: detects action tags, injects results back into chat
-// Tags: TASK_DONE, ADD_TASK, SKIP, BROWSE, SHEET_WRITE/READ/APPEND, SAVE_NOTE
-// NEW v2.1: TAB_OPEN, TAB_SCRAPE, TAB_CLICK, TAB_TYPE, TAB_READ, TAB_LIST, TAB_CLOSE, TAB_WAIT
+// AgentOS Bridge - Content Script v3.0.0
+// Session Loop Engine: autonomous agent feedback loop
+// Tags: TASK_DONE, ADD_TASK, SKIP, BROWSE, SHEET_*, SAVE_NOTE
+// TAB_OPEN, TAB_SCRAPE, TAB_CLICK, TAB_TYPE, TAB_READ, TAB_LIST, TAB_CLOSE, TAB_WAIT
+// NEW v3.0: SESSION_COMPLETE, startSession/endSession, always-on result injection
+
 (function() {
   'use strict';
 
@@ -9,9 +11,13 @@
   var processedTasks = {};
   var DEDUP_WINDOW = 60000;
 
+  // UI elements
   var statusBadge = null;
   var readDocBtn = null;
   var loopBtn = null;
+  var sessionBtn = null;
+
+  // State
   var isConnected = false;
   var autoLoopEnabled = false;
   var loopTimer = null;
@@ -21,6 +27,12 @@
   var waitingForResponse = false;
   var pendingToolActions = 0;
   var actionResults = [];
+
+  // Session state
+  var sessionActive = false;
+  var currentSessionId = null;
+  var sessionActionCount = 0;
+  var sessionStartTime = null;
 
   function isDuplicate(type, text) {
     var key = type + ':' + text.trim().toLowerCase().replace(/\s+/g, ' ');
@@ -43,12 +55,24 @@
     readDocBtn.addEventListener('click', function() { doReadAndPaste(); });
     document.body.appendChild(readDocBtn);
 
+    // Auto-loop toggle button
     loopBtn = document.createElement('button');
     loopBtn.id = 'agentos-loop-btn';
     loopBtn.textContent = 'Auto Loop: OFF';
     loopBtn.style.cssText = 'position:fixed;bottom:100px;right:20px;z-index:99999;padding:8px 16px;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;background:#333;color:#888;transition:all 0.2s;';
     loopBtn.addEventListener('click', function() { toggleAutoLoop(); });
     document.body.appendChild(loopBtn);
+
+    // Session start/end button
+    sessionBtn = document.createElement('button');
+    sessionBtn.id = 'agentos-session-btn';
+    sessionBtn.textContent = 'Start Session';
+    sessionBtn.style.cssText = 'position:fixed;bottom:140px;right:20px;z-index:99999;padding:8px 16px;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;background:#0066ff;color:#fff;transition:all 0.2s;';
+    sessionBtn.addEventListener('click', function() {
+      if (sessionActive) endSession();
+      else startSession();
+    });
+    document.body.appendChild(sessionBtn);
   }
 
   function updateLoopButton() {
@@ -61,6 +85,19 @@
       loopBtn.textContent = 'Auto Loop: OFF';
       loopBtn.style.background = '#333';
       loopBtn.style.color = '#888';
+    }
+  }
+
+  function updateSessionButton() {
+    if (!sessionBtn) return;
+    if (sessionActive) {
+      sessionBtn.textContent = 'End Session (' + sessionActionCount + ')';
+      sessionBtn.style.background = '#ff4444';
+      sessionBtn.style.color = '#fff';
+    } else {
+      sessionBtn.textContent = 'Start Session';
+      sessionBtn.style.background = '#0066ff';
+      sessionBtn.style.color = '#fff';
     }
   }
 
@@ -90,14 +127,14 @@
     notif.textContent = msg;
     document.body.appendChild(notif);
     setTimeout(function() { notif.remove(); }, 3000);
-  }
+                                          }
 
   // ========= CHAT INPUT =========
   function findChatInput() {
     return document.querySelector('#prompt-textarea') ||
-           document.querySelector('[contenteditable="true"]') ||
-           document.querySelector('textarea[data-id]') ||
-           document.querySelector('textarea');
+      document.querySelector('[contenteditable="true"]') ||
+      document.querySelector('textarea[data-id]') ||
+      document.querySelector('textarea');
   }
 
   function insertTextIntoChat(input, text) {
@@ -115,30 +152,39 @@
 
   function clickSendButton() {
     var sendBtn = document.querySelector('[data-testid="send-button"]') ||
-                  document.querySelector('button[aria-label="Send prompt"]') ||
-                  document.querySelector('button[aria-label="Send"]') ||
-                  document.querySelector('form button[type="submit"]');
+      document.querySelector('button[aria-label="Send prompt"]') ||
+      document.querySelector('button[aria-label="Send"]') ||
+      document.querySelector('form button[type="submit"]');
     if (!sendBtn) {
       var buttons = document.querySelectorAll('button');
       for (var i = 0; i < buttons.length; i++) {
         var btn = buttons[i];
         if (btn.querySelector('svg') && btn.closest('form')) {
           var rect = btn.getBoundingClientRect();
-          if (rect.bottom > window.innerHeight - 200) { sendBtn = btn; break; }
+          if (rect.bottom > window.innerHeight - 200) {
+            sendBtn = btn;
+            break;
+          }
         }
       }
     }
-    if (sendBtn && !sendBtn.disabled) { sendBtn.click(); return true; }
+    if (sendBtn && !sendBtn.disabled) {
+      sendBtn.click();
+      return true;
+    }
     var input = findChatInput();
     if (input) {
-      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true }));
+      input.dispatchEvent(new KeyboardEvent('keydown', {
+        key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true
+      }));
       return true;
     }
     return false;
   }
 
-  // ========= RESULT INJECTION v2.1 =========
-  // Inject action results back into chat so the AI knows what happened
+  // ========= RESULT INJECTION v3.0 =========
+  // CRITICAL FIX: Results are ALWAYS injected back into chat
+  // This is the core of the feedback loop - AI must always see tool results
   function injectResultIntoChat(resultText) {
     var input = findChatInput();
     if (!input) return false;
@@ -147,6 +193,8 @@
     setTimeout(function() {
       clickSendButton();
       showNotification('Result injected into chat');
+      if (sessionActive) sessionActionCount++;
+      updateSessionButton();
     }, 500);
     return true;
   }
@@ -156,24 +204,101 @@
     actionResults.push(text);
   }
 
+  // v3.0 FIX: REMOVED the autoLoopEnabled gate
+  // Results are ALWAYS flushed back to the AI so it can see what happened
   function flushResults() {
     if (actionResults.length === 0) return;
     var combined = actionResults.join('\n---\n');
     actionResults = [];
-    // Only inject if auto-loop is enabled
-    if (autoLoopEnabled) {
-      setTimeout(function() {
-        injectResultIntoChat(combined);
-        waitingForResponse = true;
-      }, 1000);
-    }
+    // ALWAYS inject results - this is the feedback loop!
+    setTimeout(function() {
+      injectResultIntoChat(combined);
+      waitingForResponse = true;
+    }, 1000);
   }
+
+  // ========= SESSION MANAGEMENT v3.0 =========
+  function startSession() {
+    showNotification('Starting session...');
+    sessionActive = true;
+    sessionActionCount = 0;
+    sessionStartTime = Date.now();
+    updateSessionButton();
+
+    // Ask background to build the session prompt from Doc + Sheet memory
+    chrome.runtime.sendMessage({ action: 'startSession' }, function(resp) {
+      if (resp && resp.success && resp.prompt) {
+        currentSessionId = resp.sessionId;
+        showNotification('Session ' + resp.sessionId + ' started!');
+
+        // Inject the session prompt into chat and auto-send
+        var input = findChatInput();
+        if (input) {
+          insertTextIntoChat(input, resp.prompt);
+          setTimeout(function() {
+            var sent = clickSendButton();
+            if (sent) {
+              showNotification('Session prompt sent! Agent is working...');
+              waitingForResponse = true;
+              // Also enable auto-loop so the agent keeps going
+              autoLoopEnabled = true;
+              updateLoopButton();
+            } else {
+              showNotification('Could not auto-send prompt');
+            }
+          }, 1000);
+        }
+      } else {
+        showNotification('Session start failed: ' + (resp ? resp.error : 'unknown'));
+        sessionActive = false;
+        updateSessionButton();
+      }
+    });
+  }
+
+  function endSession() {
+    if (!sessionActive) return;
+    showNotification('Ending session...');
+
+    // Stop auto-loop
+    autoLoopEnabled = false;
+    if (loopTimer) clearTimeout(loopTimer);
+    loopTimer = null;
+    waitingForResponse = false;
+    updateLoopButton();
+
+    // Tell background to write session summary to Doc + Sheet
+    chrome.runtime.sendMessage({
+      action: 'endSession',
+      sessionId: currentSessionId,
+      actionCount: sessionActionCount,
+      duration: Math.round((Date.now() - (sessionStartTime || Date.now())) / 1000)
+    }, function(resp) {
+      if (resp && resp.success) {
+        showNotification('Session ended. Summary saved!');
+      } else {
+        showNotification('Session end: ' + (resp ? resp.error : 'could not save summary'));
+      }
+    });
+
+    sessionActive = false;
+    currentSessionId = null;
+    sessionActionCount = 0;
+    sessionStartTime = null;
+    updateSessionButton();
+}
 
   // ========= READ DOC AND PASTE =========
   function doReadAndPaste(autoSend) {
-    if (readDocBtn) { readDocBtn.textContent = 'Reading...'; readDocBtn.disabled = true; }
+    if (readDocBtn) {
+      readDocBtn.textContent = 'Reading...';
+      readDocBtn.disabled = true;
+    }
     chrome.runtime.sendMessage({ action: 'readDoc' }, function(resp) {
-      if (readDocBtn) { readDocBtn.textContent = 'Read Doc'; readDocBtn.disabled = false; }
+      if (readDocBtn) {
+        readDocBtn.textContent = 'Read Doc';
+        readDocBtn.disabled = false;
+      }
       if (resp && resp.success && resp.text) {
         var input = findChatInput();
         if (input) {
@@ -182,14 +307,24 @@
           if (autoSend) {
             setTimeout(function() {
               var sent = clickSendButton();
-              if (sent) { showNotification('Auto-sent! Waiting...'); waitingForResponse = true; }
-              else { showNotification('Could not auto-send'); waitingForResponse = false; }
+              if (sent) {
+                showNotification('Auto-sent! Waiting...');
+                waitingForResponse = true;
+              } else {
+                showNotification('Could not auto-send');
+                waitingForResponse = false;
+              }
             }, 1000);
           }
-        } else { showNotification('Could not find chat input'); }
+        } else {
+          showNotification('Could not find chat input');
+        }
       } else {
         showNotification(resp ? resp.error : 'Failed to read doc');
-        if (autoLoopEnabled) { autoLoopEnabled = false; updateLoopButton(); }
+        if (autoLoopEnabled) {
+          autoLoopEnabled = false;
+          updateLoopButton();
+        }
       }
     });
   }
@@ -212,17 +347,21 @@
   }
 
   function onAllTasksDone() {
+    showNotification('ALL TASKS COMPLETE!');
+    // v3.0: End session when all tasks are done
+    if (sessionActive) {
+      endSession();
+    }
     autoLoopEnabled = false;
     if (loopTimer) clearTimeout(loopTimer);
     loopTimer = null;
     waitingForResponse = false;
     updateLoopButton();
-    showNotification('ALL TASKS COMPLETE! Agent stopped.');
   }
 
   function checkAndSchedule() {
     if (pendingToolActions === 0) {
-      // Flush any queued results first
+      // Flush any queued results first - this is the feedback loop
       if (actionResults.length > 0) {
         flushResults();
       } else if (autoLoopEnabled) {
@@ -238,7 +377,11 @@
       if (el.getAttribute && el.getAttribute('data-message-author-role') === 'assistant') return true;
       if (el.classList && el.classList.contains('font-claude-message')) return true;
       if (el.getAttribute && el.getAttribute('data-content-type') === 'response') return true;
-      if (el.classList && (el.classList.contains('response-content') || el.classList.contains('bot-message') || el.classList.contains('assistant-message'))) return true;
+      if (el.classList && (
+        el.classList.contains('response-content') ||
+        el.classList.contains('bot-message') ||
+        el.classList.contains('assistant-message')
+      )) return true;
       el = el.parentElement;
     }
     return false;
@@ -262,6 +405,17 @@
 
     var match;
 
+    // ===== SESSION_COMPLETE v3.0 =====
+    // AI outputs this when it decides the session goal is achieved
+    var sessionCompleteRe = /\[SESSION_COMPLETE(?::\s*(.+?))?\]/g;
+    while ((match = sessionCompleteRe.exec(text)) !== null) {
+      processedNodes.add(node);
+      var summary = match[1] ? match[1].trim() : 'Session completed by AI';
+      if (isDuplicate('sessioncomplete', summary)) continue;
+      showNotification('AI ended session: ' + summary.substring(0, 50));
+      if (sessionActive) endSession();
+    }
+
     // ===== TASK_DONE =====
     var taskDoneRe = /\[TASK_DONE:\s*(.+?)\]/g;
     while ((match = taskDoneRe.exec(text)) !== null) {
@@ -275,9 +429,13 @@
           pendingToolActions--;
           if (resp && resp.success) {
             showNotification('Moved to DONE: ' + tt.substring(0, 30));
+            queueResult('TASK_DONE ' + tt + ': SUCCESS. Remaining TODO: ' + (resp.counts ? resp.counts.todo : '?'));
             if (resp.counts && resp.counts.todo === 0) onAllTasksDone();
             else checkAndSchedule();
-          } else { checkAndSchedule(); }
+          } else {
+            queueResult('TASK_DONE ' + tt + ': ERROR ' + (resp ? resp.error : 'unknown'));
+            checkAndSchedule();
+          }
         });
       })(taskText);
     }
@@ -289,7 +447,11 @@
       var newTask = match[1].trim();
       if (isDuplicate('add', newTask)) continue;
       showNotification('Adding task: ' + newTask.substring(0, 40));
-      chrome.runtime.sendMessage({ action: 'addTask', taskText: newTask });
+      chrome.runtime.sendMessage({ action: 'addTask', taskText: newTask }, function(resp) {
+        if (resp && resp.success) {
+          queueResult('ADD_TASK ' + newTask + ': SUCCESS');
+        }
+      });
     }
 
     // ===== SKIP =====
@@ -307,14 +469,17 @@
         chrome.runtime.sendMessage({ action: 'taskSkip', taskText: st, reason: sr }, function(resp) {
           pendingToolActions--;
           if (resp && resp.success) {
+            queueResult('SKIP ' + st + ': SUCCESS');
             if (resp.counts && resp.counts.todo === 0) onAllTasksDone();
             else checkAndSchedule();
-          } else { checkAndSchedule(); }
+          } else {
+            checkAndSchedule();
+          }
         });
       })(skipTask, skipReason);
     }
 
-    // ===== BROWSE (fetch-based) =====
+    // ===== BROWSE =====
     var browseRe = /\[BROWSE:\s*(.+?)\]/g;
     while ((match = browseRe.exec(text)) !== null) {
       processedNodes.add(node);
@@ -325,12 +490,16 @@
       (function(u) {
         chrome.runtime.sendMessage({ action: 'browse', url: u }, function(resp) {
           pendingToolActions--;
-          if (resp && resp.success) showNotification('Browsed: ' + u.substring(0, 30));
-          else showNotification('Browse failed: ' + (resp ? resp.error : 'unknown'));
+          if (resp && resp.success) {
+            showNotification('Browsed: ' + u.substring(0, 30));
+            queueResult('BROWSE ' + u + ': ' + (resp.text || '').substring(0, 1500));
+          } else {
+            queueResult('BROWSE ' + u + ': ERROR ' + (resp ? resp.error : 'unknown'));
+          }
           checkAndSchedule();
         });
       })(url);
-    }
+                        }
 
     // ===== SHEET_WRITE =====
     var sheetWriteRe = /\[SHEET_WRITE:\s*(.+?)\]/g;
@@ -350,8 +519,13 @@
       (function(r, v) {
         chrome.runtime.sendMessage({ action: 'sheetWrite', range: r, values: v }, function(resp) {
           pendingToolActions--;
-          if (resp && resp.success) showNotification('Sheet updated: ' + r);
-          else showNotification('Sheet write failed: ' + (resp ? resp.error : 'unknown'));
+          if (resp && resp.success) {
+            showNotification('Sheet updated: ' + r);
+            queueResult('SHEET_WRITE ' + r + ': SUCCESS');
+          } else {
+            showNotification('Sheet write failed');
+            queueResult('SHEET_WRITE ' + r + ': ERROR ' + (resp ? resp.error : 'unknown'));
+          }
           checkAndSchedule();
         });
       })(swRange, swValues);
@@ -370,10 +544,10 @@
           pendingToolActions--;
           if (resp && resp.success) {
             showNotification('Sheet read: ' + resp.values.length + ' rows');
-            // Queue result so AI can see the data
-            var resultStr = 'SHEET_READ ' + r + ': ' + JSON.stringify(resp.values).substring(0, 1000);
-            queueResult(resultStr);
-          } else { showNotification('Sheet read failed: ' + (resp ? resp.error : 'unknown')); }
+            queueResult('SHEET_READ ' + r + ': ' + JSON.stringify(resp.values).substring(0, 1000));
+          } else {
+            queueResult('SHEET_READ ' + r + ': ERROR ' + (resp ? resp.error : 'unknown'));
+          }
           checkAndSchedule();
         });
       })(srRange);
@@ -397,8 +571,12 @@
       (function(r, v) {
         chrome.runtime.sendMessage({ action: 'sheetAppend', range: r, values: v }, function(resp) {
           pendingToolActions--;
-          if (resp && resp.success) showNotification('Sheet appended!');
-          else showNotification('Sheet append failed: ' + (resp ? resp.error : 'unknown'));
+          if (resp && resp.success) {
+            showNotification('Sheet appended!');
+            queueResult('SHEET_APPEND ' + r + ': SUCCESS');
+          } else {
+            queueResult('SHEET_APPEND ' + r + ': ERROR ' + (resp ? resp.error : 'unknown'));
+          }
           checkAndSchedule();
         });
       })(saRange, saValues);
@@ -412,15 +590,18 @@
       if (isDuplicate('note', noteText)) continue;
       showNotification('Saving note...');
       chrome.runtime.sendMessage({ action: 'saveNote', text: noteText }, function(resp) {
-        if (resp && resp.success) showNotification('Note saved to doc!');
+        if (resp && resp.success) {
+          showNotification('Note saved to doc!');
+          queueResult('SAVE_NOTE: SUCCESS');
+        }
       });
-    }
+           }
 
-    // ===================================================
-    // BROWSER CONTROL TAGS v2.1
-    // ===================================================
+    // =================================================
+    // BROWSER CONTROL TAGS v2.1 (preserved)
+    // =================================================
 
-    // ===== TAB_OPEN: open a URL in a new tab =====
+    // ===== TAB_OPEN =====
     var tabOpenRe = /\[TAB_OPEN:\s*(.+?)\]/g;
     while ((match = tabOpenRe.exec(text)) !== null) {
       processedNodes.add(node);
@@ -435,7 +616,6 @@
             showNotification('Opened tab ' + resp.tabId);
             queueResult('TAB_OPEN ' + u + ': tabId=' + resp.tabId + ' title="' + (resp.title || '') + '"');
           } else {
-            showNotification('Open failed: ' + (resp ? resp.error : 'unknown'));
             queueResult('TAB_OPEN ' + u + ': ERROR ' + (resp ? resp.error : 'unknown'));
           }
           checkAndSchedule();
@@ -443,8 +623,7 @@
       })(openUrl);
     }
 
-    // ===== TAB_SCRAPE: scrape text from a tab =====
-    // Format: [TAB_SCRAPE: tabId] or [TAB_SCRAPE: tabId | selector]
+    // ===== TAB_SCRAPE =====
     var tabScrapeRe = /\[TAB_SCRAPE:\s*(.+?)\]/g;
     while ((match = tabScrapeRe.exec(text)) !== null) {
       processedNodes.add(node);
@@ -462,7 +641,6 @@
             showNotification('Scraped ' + resp.text.length + ' chars');
             queueResult('TAB_SCRAPE tab:' + resp.tabId + (sel ? ' sel:' + sel : '') + ':\n' + resp.text.substring(0, 2000));
           } else {
-            showNotification('Scrape failed: ' + (resp ? resp.error : 'unknown'));
             queueResult('TAB_SCRAPE: ERROR ' + (resp ? resp.error : 'unknown'));
           }
           checkAndSchedule();
@@ -470,8 +648,7 @@
       })(scrapeTabId, scrapeSel);
     }
 
-    // ===== TAB_CLICK: click an element =====
-    // Format: [TAB_CLICK: tabId | selector]
+    // ===== TAB_CLICK =====
     var tabClickRe = /\[TAB_CLICK:\s*(.+?)\]/g;
     while ((match = tabClickRe.exec(text)) !== null) {
       processedNodes.add(node);
@@ -490,7 +667,6 @@
             showNotification('Clicked: ' + (resp.tagName || sel));
             queueResult('TAB_CLICK ' + sel + ': SUCCESS clicked ' + (resp.tagName || '') + ' "' + (resp.text || '').substring(0, 50) + '"');
           } else {
-            showNotification('Click failed: ' + (resp ? resp.error : 'unknown'));
             queueResult('TAB_CLICK ' + sel + ': ERROR ' + (resp ? resp.error : 'unknown'));
           }
           checkAndSchedule();
@@ -498,8 +674,7 @@
       })(clickTabId, clickSel);
     }
 
-    // ===== TAB_TYPE: type text into an element =====
-    // Format: [TAB_TYPE: tabId | selector | text to type]
+    // ===== TAB_TYPE =====
     var tabTypeRe = /\[TAB_TYPE:\s*(.+?)\]/g;
     while ((match = tabTypeRe.exec(text)) !== null) {
       processedNodes.add(node);
@@ -522,10 +697,8 @@
         chrome.runtime.sendMessage({ action: 'tabType', tabId: tid, selector: sel, text: txt }, function(resp) {
           pendingToolActions--;
           if (resp && resp.success) {
-            showNotification('Typed into ' + sel);
             queueResult('TAB_TYPE ' + sel + ': SUCCESS typed "' + txt.substring(0, 50) + '"');
           } else {
-            showNotification('Type failed: ' + (resp ? resp.error : 'unknown'));
             queueResult('TAB_TYPE ' + sel + ': ERROR ' + (resp ? resp.error : 'unknown'));
           }
           checkAndSchedule();
@@ -533,8 +706,7 @@
       })(typeTabId, typeSel, typeText);
     }
 
-    // ===== TAB_READ: discover elements on a page =====
-    // Format: [TAB_READ: tabId] or [TAB_READ: tabId | selector]
+    // ===== TAB_READ =====
     var tabReadRe = /\[TAB_READ:\s*(.+?)\]/g;
     while ((match = tabReadRe.exec(text)) !== null) {
       processedNodes.add(node);
@@ -552,7 +724,6 @@
             showNotification('Found ' + resp.count + ' elements');
             queueResult('TAB_READ tab:' + (tid || 'active') + ' found ' + resp.count + ' elements:\n' + JSON.stringify(resp.items).substring(0, 2000));
           } else {
-            showNotification('Read failed: ' + (resp ? resp.error : 'unknown'));
             queueResult('TAB_READ: ERROR ' + (resp ? resp.error : 'unknown'));
           }
           checkAndSchedule();
@@ -560,7 +731,7 @@
       })(readTabId, readSel);
     }
 
-    // ===== TAB_LIST: list all open tabs =====
+    // ===== TAB_LIST =====
     var tabListRe = /\[TAB_LIST\]/g;
     while ((match = tabListRe.exec(text)) !== null) {
       processedNodes.add(node);
@@ -571,7 +742,9 @@
         pendingToolActions--;
         if (resp && resp.success) {
           showNotification('Found ' + resp.tabs.length + ' tabs');
-          var tabInfo = resp.tabs.map(function(t) { return 'id:' + t.id + ' ' + (t.active ? '[ACTIVE] ' : '') + t.title + ' (' + t.url + ')'; }).join('\n');
+          var tabInfo = resp.tabs.map(function(t) {
+            return 'id:' + t.id + ' ' + (t.active ? '[ACTIVE] ' : '') + t.title + ' (' + t.url + ')';
+          }).join('\n');
           queueResult('TAB_LIST:\n' + tabInfo);
         } else {
           queueResult('TAB_LIST: ERROR ' + (resp ? resp.error : 'unknown'));
@@ -580,7 +753,7 @@
       });
     }
 
-    // ===== TAB_CLOSE: close a tab =====
+    // ===== TAB_CLOSE =====
     var tabCloseRe = /\[TAB_CLOSE:\s*(.+?)\]/g;
     while ((match = tabCloseRe.exec(text)) !== null) {
       processedNodes.add(node);
@@ -593,7 +766,6 @@
         chrome.runtime.sendMessage({ action: 'tabClose', tabId: tid }, function(resp) {
           pendingToolActions--;
           if (resp && resp.success) {
-            showNotification('Tab closed: ' + tid);
             queueResult('TAB_CLOSE ' + tid + ': SUCCESS');
           } else {
             queueResult('TAB_CLOSE ' + tid + ': ERROR ' + (resp ? resp.error : 'unknown'));
@@ -603,7 +775,7 @@
       })(closeTabId);
     }
 
-    // ===== TAB_WAIT: wait before next action =====
+    // ===== TAB_WAIT =====
     var tabWaitRe = /\[TAB_WAIT:\s*(.+?)\]/g;
     while ((match = tabWaitRe.exec(text)) !== null) {
       processedNodes.add(node);
@@ -620,7 +792,7 @@
         });
       })(waitMs);
     }
-  }
+  } // end scanNode
 
   // ========= MUTATION OBSERVER =========
   var observer = new MutationObserver(function(mutations) {
@@ -638,7 +810,7 @@
     }
   });
 
-  // ========= MESSAGE HANDLER =========
+  // ========= MESSAGE HANDLER v3.0 =========
   chrome.runtime.onMessage.addListener(function(msg) {
     if (msg.action === 'connected') {
       updateBadgeStatus(true);
@@ -648,7 +820,28 @@
       showNotification('AgentOS disconnected');
     } else if (msg.action === 'pasteText') {
       var input = findChatInput();
-      if (input) { insertTextIntoChat(input, msg.text); showNotification('Doc pasted!'); }
+      if (input) {
+        insertTextIntoChat(input, msg.text);
+        showNotification('Doc pasted!');
+      }
+    } else if (msg.action === 'startSessionFromPopup') {
+      // Popup can trigger session start
+      startSession();
+    } else if (msg.action === 'endSessionFromPopup') {
+      // Popup can trigger session end
+      endSession();
+    } else if (msg.action === 'injectPrompt') {
+      // Direct prompt injection from background/popup
+      var input = findChatInput();
+      if (input) {
+        insertTextIntoChat(input, msg.text);
+        if (msg.autoSend) {
+          setTimeout(function() {
+            clickSendButton();
+            showNotification('Prompt sent!');
+          }, 500);
+        }
+      }
     }
   });
 
@@ -660,9 +853,10 @@
       else updateBadgeStatus(false);
     });
     observer.observe(document.body, { childList: true, subtree: true });
-    console.log('[AgentOS v2.1.0] Content script loaded - Browser Control Engine active');
+    console.log('[AgentOS v3.0.0] Content script loaded - Session Loop Engine active');
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
   else init();
+
 })();
