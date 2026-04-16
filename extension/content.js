@@ -107,6 +107,7 @@
   function startSession() {
     currentSessionId = 'S-' + Date.now();
     sessionActive = true;
+    _rateLimits = {};
     sessionBtn.textContent = '\u23F9 End Session';
     sessionBtn.style.borderColor = '#ef444455';
     sessionBtn.style.color = '#ef4444';
@@ -269,7 +270,9 @@
 
     // -- BROWSER TAGS --
     handleTag(text, /\[TAB_OPEN:\s*(.+?)\]/g, function(m) {
-      send('tabOpen', { url: m[1].trim() });
+      var u = m[1].trim();
+      if (!/^https?:\/\//i.test(u)) { injectResult('tabOpen',{error:'URL blocked (must be http/https): '+u}); return; }
+      send('tabOpen', { url: u });
     });
     handleTag(text, /\[TAB_SCRAPE:\s*(.+?)\]/g, function(m) {
       send('tabScrape', { url: m[1].trim() });
@@ -379,7 +382,16 @@
   // Before: chrome.runtime.sendMessage({ type: type, data: data })
   // After:  chrome.runtime.sendMessage({ type: type, ...data })
   // This way background.js can read msg.range, msg.values, msg.task etc directly
+  var _rateLimits = {};
+  var _caps = { emailNotify: 5, emailReport: 5, spawnAgent: 3, tabOpen: 30, tabScrape: 30, scheduleTask: 10 };
   function send(type, data) {
+    if (_caps[type] !== undefined) {
+      _rateLimits[type] = (_rateLimits[type] || 0) + 1;
+      if (_rateLimits[type] > _caps[type]) {
+        injectResult(type, { error: 'Rate limit reached for ' + type + ' (max ' + _caps[type] + '/session)' });
+        return;
+      }
+    }
     updateUI('working', 'Executing: ' + type);
     var message = { type: type };
     for (var key in data) {
@@ -408,7 +420,7 @@
       resultText += data.success ? 'OK' : 'FAILED';
       if (data.data) resultText += ' | ' + (typeof data.data === 'string' ? data.data : JSON.stringify(data.data).substring(0, 500));
       if (data.result) resultText += ' | ' + (typeof data.result === 'string' ? data.result : JSON.stringify(data.result).substring(0, 500));
-      if (data.text) resultText += ' | ' + data.text.substring(0, 500);
+      if (data.text) resultText += ' | ' + String(data.text).replace(/\[([A-Z_]+)(:[^\]]*)?\]/g,'($1)').substring(0, 500);
       if (data.tasks) resultText += ' | ' + data.tasks;
       if (data.skills) resultText += ' | ' + data.skills;
       if (data.agents) resultText += ' | ' + data.agents;
@@ -511,8 +523,8 @@
   // MESSAGE LISTENER (FIX: injectPrompt reads msg.text)
   // =======================================
   chrome.runtime.onMessage.addListener(function(msg, sender, sendResponse) {
-    if (msg.type === 'startSession') { if (msg.sessionId) currentSessionId = msg.sessionId; if (!sessionActive) toggleSession(); sendResponse({ok: true}); }
-    else if (msg.type === 'endSession') { if (sessionActive) toggleSession(); sendResponse({ok: true}); }
+    if (msg.type === 'startSession') { if (msg.sessionId) currentSessionId = msg.sessionId; if (!sessionActive) startSession(); sendResponse({ok: true}); }
+    else if (msg.type === 'endSession') { if (sessionActive) endSession(); sendResponse({ok: true}); }
     else if (msg.type === 'toggleLoop') { autoLoopEnabled = !autoLoopEnabled; sendResponse({loop: autoLoopEnabled}); }
     else if (msg.type === 'injectPrompt') { injectMessage(msg.text); sendResponse({ok: true}); }
     else if (msg.type === 'getContentState') { sendResponse({active: sessionActive, loop: autoLoopEnabled, session: currentSessionId}); }
