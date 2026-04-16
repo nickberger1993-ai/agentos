@@ -511,12 +511,11 @@
   // MESSAGE LISTENER (FIX: injectPrompt reads msg.text)
   // =======================================
   chrome.runtime.onMessage.addListener(function(msg, sender, sendResponse) {
-    if (msg.type === 'startSession') { startSession(); sendResponse({ ok: true }); }
-    else if (msg.type === 'endSession') { endSession(); sendResponse({ ok: true }); }
-    else if (msg.type === 'toggleLoop') { toggleLoop(); sendResponse({ ok: true }); }
-    else if (msg.type === 'injectPrompt') { injectMessage(msg.text); sendResponse({ ok: true }); }
-    else if (msg.type === 'getContentState') {
-      sendResponse({ sessionActive: sessionActive, autoLoop: autoLoopEnabled, loopCount: loopCount, tagCount: tagCount, sessionId: currentSessionId });
+    if (msg.type === 'startSession') { if (msg.sessionId) currentSessionId = msg.sessionId; if (!sessionActive) toggleSession(); sendResponse({ok: true}); }
+    else if (msg.type === 'endSession') { if (sessionActive) toggleSession(); sendResponse({ok: true}); }
+    else if (msg.type === 'toggleLoop') { autoLoopEnabled = !autoLoopEnabled; sendResponse({loop: autoLoopEnabled}); }
+    else if (msg.type === 'injectPrompt') { injectMessage(msg.text); sendResponse({ok: true}); }
+    else if (msg.type === 'getContentState') { sendResponse({active: sessionActive, loop: autoLoopEnabled, session: currentSessionId}); }
     }
     return true;
   });
@@ -537,3 +536,4 @@
   }
 
 })();
+
