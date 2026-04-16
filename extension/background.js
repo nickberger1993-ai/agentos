@@ -1,6 +1,6 @@
-// AgentOS Bridge - Background Service Worker v4.1.0
-// KEY CHANGE: Added buildContext handler that reads SOUL Doc + Sheet
-// and returns full context for session start prompt
+// AgentOS Bridge - Background Service Worker v4.2.0
+// FIX: buildContext uses getToken(true) for interactive auth on first use
+// FIX: buildContext auto-provisions Doc+Sheet if missing
 
 try {
   importScripts('skills.js', 'scheduler.js', 'multiagent.js', 'gateway.js', 'templates.js');
@@ -8,9 +8,9 @@ try {
   console.warn('[AgentOS] Module import warning:', e.message);
 }
 
-// ═══════════════════════════════════════════
+// ====================================
 // STATE
-// ═══════════════════════════════════════════
+// ====================================
 var state = {
   connected: false,
   token: null,
@@ -32,9 +32,9 @@ function saveState() {
   chrome.storage.local.set({ agentosState: state });
 }
 
-// ═══════════════════════════════════════════
+// ====================================
 // AUTH
-// ═══════════════════════════════════════════
+// ====================================
 function getToken(interactive) {
   return new Promise(function(resolve, reject) {
     if (state.token) { resolve(state.token); return; }
@@ -48,9 +48,9 @@ function getToken(interactive) {
   });
 }
 
-// ═══════════════════════════════════════════
+// ====================================
 // AUTO-PROVISIONING
-// ═══════════════════════════════════════════
+// ====================================
 function autoProvision() {
   return getToken(true).then(function(token) {
     return Promise.all([createDoc(token), createSheet(token)]);
@@ -69,19 +69,16 @@ function createDoc(token) {
     method: 'POST',
     headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
     body: JSON.stringify({ title: 'AgentOS - SOUL Memory' })
-  }).then(function(r) { return r.json(); })
-  .then(function(doc) {
-    var docId = doc.documentId;
-    var soul = '# AgentOS SOUL v4.1\n\n';
-    soul += '## IDENTITY\nYou are an autonomous AI agent running on AgentOS.\n';
-    soul += 'You have persistent memory, skills, scheduling, email, and multi-agent abilities.\n\n';
-    soul += '## TODO\n- Introduce yourself and explore your capabilities\n- Create your first skill\n\n';
-    soul += '## DONE\n\n## NOTES\n\n## SESSION LOG\n';
-    return fetch('https://docs.googleapis.com/v1/documents/' + docId + ':batchUpdate', {
+  }).then(function(r) { return r.json(); }).then(function(doc) {
+    state.docId = doc.documentId;
+    saveState();
+    // Initialize with default SOUL content
+    var soulContent = '# AgentOS SOUL\n\n## Identity\nI am an AI agent powered by AgentOS.\n\n## Goals\n- Help the user with tasks\n- Learn and improve over time\n- Use tools efficiently\n\n## Notes\n(none yet)\n\n## TODO\n- Introduce myself to the user\n\n## DONE\n(none yet)\n';
+    return fetch('https://docs.googleapis.com/v1/documents/' + doc.documentId + ':batchUpdate', {
       method: 'POST',
       headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ requests: [{ insertText: { location: { index: 1 }, text: soul } }] })
-    }).then(function() { return docId; });
+      body: JSON.stringify({ requests: [{ insertText: { location: { index: 1 }, text: soulContent } }] })
+    }).then(function() { return doc.documentId; });
   });
 }
 
@@ -101,43 +98,50 @@ function createSheet(token) {
         { properties: { title: 'Data' } }
       ]
     })
-  }).then(function(r) { return r.json(); })
-  .then(function(sheet) {
-    var sid = sheet.spreadsheetId;
-    // Add headers
-    var headerPromises = [
-      putSheet(token, sid, 'Sessions!A1:F1', [['Session ID','Start','End','Loops','Tags','Summary']]),
-      putSheet(token, sid, 'Skills!A1:D1', [['Name','Doc ID','Created','Status']]),
-      putSheet(token, sid, 'Agents!A1:E1', [['Name','Role','Doc ID','Created','Status']]),
-      putSheet(token, sid, 'Tasks!A1:E1', [['Task','When','Action','Event ID','Status']]),
-      putSheet(token, sid, 'Data!A1:E1', [['Key','Value','Type','Updated','Notes']])
+  }).then(function(r) { return r.json(); }).then(function(sheet) {
+    state.sheetId = sheet.spreadsheetId;
+    saveState();
+    // Add headers to each tab
+    var headerRequests = [
+      putSheet(token, sheet.spreadsheetId, 'Sessions!A1:F1', [['SessionID', 'Start', 'End', 'Status', 'Tags', 'Summary']]),
+      putSheet(token, sheet.spreadsheetId, 'Skills!A1:D1', [['Name', 'DocID', 'Created', 'Uses']]),
+      putSheet(token, sheet.spreadsheetId, 'Agents!A1:E1', [['Name', 'DocID', 'SheetID', 'Status', 'Created']]),
+      putSheet(token, sheet.spreadsheetId, 'Messages!A1:E1', [['From', 'To', 'Message', 'Time', 'Read']]),
+      putSheet(token, sheet.spreadsheetId, 'Tasks!A1:E1', [['Task', 'Status', 'Priority', 'Created', 'Done']]),
+      putSheet(token, sheet.spreadsheetId, 'Data!A1:C1', [['Key', 'Value', 'Updated']])
     ];
-    return Promise.all(headerPromises).then(function() { return sid; });
+    return Promise.all(headerRequests).then(function() { return sheet.spreadsheetId; });
   });
 }
 
 function putSheet(token, sheetId, range, values) {
-  return fetch('https://sheets.googleapis.com/v4/spreadsheets/' + sheetId + '/values/' + range + '?valueInputOption=RAW', {
+  return fetch('https://sheets.googleapis.com/v4/spreadsheets/' + sheetId + '/values/' + range + '?valueInputOption=USER_ENTERED', {
     method: 'PUT',
     headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
     body: JSON.stringify({ values: values })
   });
 }
 
-// ═══════════════════════════════════════════
-// BUILD CONTEXT — THE KEY NEW FEATURE
-// Reads SOUL Doc + all Sheet tabs, returns full context
-// ═══════════════════════════════════════════
+// ====================================
+// BUILD CONTEXT (v4.2 - interactive auth + auto-provision)
+// ====================================
 function buildContext() {
-  return getToken(false).then(function(token) {
-    // Read everything in parallel
-    return Promise.all([
-      readDocText(token, state.docId),
-      readSheetSafe(token, state.sheetId, 'Sessions!A2:F20'),
-      readSheetSafe(token, state.sheetId, 'Tasks!A2:E20'),
-      readSheetSafe(token, state.sheetId, 'Skills!A2:D20'),
-      readSheetSafe(token, state.sheetId, 'Agents!A2:E20')
-    ]);
+  return getToken(true).then(function(token) {
+    // Auto-provision Doc+Sheet if missing
+    var provisionPromise = Promise.resolve();
+    if (!state.docId || !state.sheetId) {
+      provisionPromise = autoProvision();
+    }
+    return provisionPromise.then(function() {
+      // Read everything in parallel
+      return Promise.all([
+        readDocText(token, state.docId),
+        readSheetSafe(token, state.sheetId, 'Sessions!A2:F20'),
+        readSheetSafe(token, state.sheetId, 'Tasks!A2:E20'),
+        readSheetSafe(token, state.sheetId, 'Skills!A2:D20'),
+        readSheetSafe(token, state.sheetId, 'Agents!A2:E20')
+      ]);
+    });
   }).then(function(results) {
     return {
       soul: results[0],
@@ -153,432 +157,261 @@ function readDocText(token, docId) {
   if (!docId) return Promise.resolve('No SOUL doc found. Connect your Google account first.');
   return fetch('https://docs.googleapis.com/v1/documents/' + docId, {
     headers: { 'Authorization': 'Bearer ' + token }
-  }).then(function(r) { return r.json(); })
-  .then(function(doc) {
+  }).then(function(r) { return r.json(); }).then(function(doc) {
     var text = '';
     if (doc.body && doc.body.content) {
-      doc.body.content.forEach(function(el) {
-        if (el.paragraph) {
-          el.paragraph.elements.forEach(function(e) {
-            if (e.textRun) text += e.textRun.content;
+      doc.body.content.forEach(function(block) {
+        if (block.paragraph && block.paragraph.elements) {
+          block.paragraph.elements.forEach(function(el) {
+            if (el.textRun) text += el.textRun.content;
           });
         }
       });
     }
-    return text;
-  }).catch(function(e) {
-    return 'Error reading SOUL doc: ' + e.message;
+    return text || '(empty document)';
   });
 }
 
 function readSheetSafe(token, sheetId, range) {
-  if (!sheetId) return Promise.resolve([]);
+  if (!sheetId) return Promise.resolve('(no sheet)');
   return fetch('https://sheets.googleapis.com/v4/spreadsheets/' + sheetId + '/values/' + range, {
     headers: { 'Authorization': 'Bearer ' + token }
-  }).then(function(r) { return r.json(); })
-  .then(function(data) { return data.values || []; })
-  .catch(function() { return []; });
+  }).then(function(r) { return r.json(); }).then(function(data) {
+    return data.values ? data.values.map(function(row) { return row.join(' | '); }).join('\n') : '(empty)';
+  }).catch(function() { return '(error reading sheet)'; });
 }
 
-// ═══════════════════════════════════════════
-// GOOGLE DOCS OPERATIONS
-// ═══════════════════════════════════════════
-function appendToDoc(text) {
-  return getToken(false).then(function(token) {
-    return fetch('https://docs.googleapis.com/v1/documents/' + state.docId, {
-      headers: { 'Authorization': 'Bearer ' + token }
-    }).then(function(r) { return r.json(); })
-    .then(function(doc) {
-      var endIndex = doc.body.content[doc.body.content.length - 1].endIndex - 1;
-      return fetch('https://docs.googleapis.com/v1/documents/' + state.docId + ':batchUpdate', {
-        method: 'POST',
-        headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ requests: [{ insertText: { location: { index: endIndex }, text: '\n' + text } }] })
-      });
-    });
-  });
-}
-
-// ═══════════════════════════════════════════
-// GOOGLE SHEETS OPERATIONS
-// ═══════════════════════════════════════════
-function writeSheet(sheet, range, data) {
-  return getToken(false).then(function(token) {
-    var values = data.split(',').map(function(v) { return v.trim(); });
-    return putSheet(token, state.sheetId, sheet + '!' + range, [values]);
-  });
-}
-
-function readSheet(sheet, range) {
-  return getToken(false).then(function(token) {
-    return readSheetSafe(token, state.sheetId, sheet + '!' + range);
-  });
-}
-
-function appendSheet(sheet, data) {
-  return getToken(false).then(function(token) {
-    var values = data.split(',').map(function(v) { return v.trim(); });
-    return fetch('https://sheets.googleapis.com/v4/spreadsheets/' + state.sheetId + '/values/' + sheet + '!A:Z:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS', {
+// ====================================
+// GOOGLE DOCS API
+// ====================================
+function appendToDoc(token, docId, text) {
+  return fetch('https://docs.googleapis.com/v1/documents/' + docId, {
+    headers: { 'Authorization': 'Bearer ' + token }
+  }).then(function(r) { return r.json(); }).then(function(doc) {
+    var end = doc.body.content[doc.body.content.length-1].endIndex - 1;
+    return fetch('https://docs.googleapis.com/v1/documents/' + docId + ':batchUpdate', {
       method: 'POST',
       headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ values: [values] })
+      body: JSON.stringify({ requests: [{ insertText: { location: { index: end }, text: '\n' + text } }] })
     });
   });
 }
 
-function logSession(action) {
-  if (action === 'start') {
-    appendSheet('Sessions', state.currentSessionId + ',' + new Date().toISOString() + ',,,,');
-  }
+// ====================================
+// GOOGLE SHEETS API
+// ====================================
+function writeSheet(token, sheetId, range, values) {
+  return fetch('https://sheets.googleapis.com/v4/spreadsheets/' + sheetId + '/values/' + range + '?valueInputOption=USER_ENTERED', {
+    method: 'PUT',
+    headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ values: values })
+  }).then(function(r) { return r.json(); });
 }
 
-// ═══════════════════════════════════════════
-// MESSAGE ROUTER
-// ═══════════════════════════════════════════
-chrome.runtime.onMessage.addListener(function(msg, sender, sendResponse) {
-  var type = msg.type;
-  var data = msg.data || {};
+function readSheet(token, sheetId, range) {
+  return fetch('https://sheets.googleapis.com/v4/spreadsheets/' + sheetId + '/values/' + range, {
+    headers: { 'Authorization': 'Bearer ' + token }
+  }).then(function(r) { return r.json(); });
+}
 
-  // ── CONNECTION & STATE ──
-  if (type === 'getState') {
-    sendResponse({ connected: state.connected, docId: state.docId, sheetId: state.sheetId, sessionActive: state.sessionActive });
-    return false;
-  }
-  if (type === 'connect') {
-    autoProvision().then(function(r) { sendResponse(r); }).catch(function(e) { sendResponse({ success: false, error: e.message }); });
-    return true;
-  }
-  if (type === 'disconnect') {
-    state.connected = false; state.token = null; saveState();
-    sendResponse({ success: true });
-    return false;
-  }
+function appendSheet(token, sheetId, range, values) {
+  return fetch('https://sheets.googleapis.com/v4/spreadsheets/' + sheetId + '/values/' + range + ':append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS', {
+    method: 'POST',
+    headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ values: values })
+  }).then(function(r) { return r.json(); });
+}
 
-  // ── BUILD CONTEXT (THE KEY NEW HANDLER) ──
-  if (type === 'buildContext') {
-    buildContext().then(function(ctx) {
-      sendResponse({ success: true, data: ctx });
-    }).catch(function(e) {
-      sendResponse({ success: false, error: e.message });
-    });
-    return true;
-  }
-
-  // ── SESSION ──
-  if (type === 'startSession') {
-    state.sessionActive = true;
-    state.currentSessionId = msg.sessionId || 'S-' + Date.now();
-    state.sessionCount++;
-    saveState();
-    logSession('start');
-    sendResponse({ success: true, sessionId: state.currentSessionId });
-    return false;
-  }
-  if (type === 'endSession') {
-    logSession('end');
-    state.sessionActive = false; state.currentSessionId = null; saveState();
-    sendResponse({ success: true });
-    return false;
-  }
-
-  // ── MEMORY TAGS ──
-  if (type === 'saveNote') {
-    appendToDoc(data.note).then(function() { sendResponse({ success: true, message: 'Note saved' }); })
-    .catch(function(e) { sendResponse({ success: false, error: e.message }); });
-    return true;
-  }
-  if (type === 'sheetWrite') {
-    writeSheet(data.sheet, data.range, data.data).then(function() { sendResponse({ success: true, message: 'Written to ' + data.sheet }); })
-    .catch(function(e) { sendResponse({ success: false, error: e.message }); });
-    return true;
-  }
-  if (type === 'sheetRead') {
-    readSheet(data.sheet, data.range).then(function(v) { sendResponse({ success: true, data: JSON.stringify(v) }); })
-    .catch(function(e) { sendResponse({ success: false, error: e.message }); });
-    return true;
-  }
-  if (type === 'sheetAppend') {
-    appendSheet(data.sheet, data.data).then(function() { sendResponse({ success: true, message: 'Appended to ' + data.sheet }); })
-    .catch(function(e) { sendResponse({ success: false, error: e.message }); });
-    return true;
-  }
-  if (type === 'taskDone') {
-    appendToDoc('[DONE] ' + data.task + ' (' + new Date().toISOString() + ')').then(function() { sendResponse({ success: true, message: 'Task done' }); })
-    .catch(function(e) { sendResponse({ success: false, error: e.message }); });
-    return true;
-  }
-  if (type === 'addTask') {
-    appendToDoc('[TODO] ' + data.task).then(function() { sendResponse({ success: true, message: 'Task added' }); })
-    .catch(function(e) { sendResponse({ success: false, error: e.message }); });
-    return true;
-  }
-  if (type === 'skip') {
-    appendToDoc('[SKIP] ' + data.reason).then(function() { sendResponse({ success: true }); })
-    .catch(function(e) { sendResponse({ success: false, error: e.message }); });
-    return true;
-  }
-
-  // ── BROWSER TAGS ──
-  if (type === 'tabOpen') {
-    chrome.tabs.create({ url: data.url }, function(tab) { sendResponse({ success: true, data: 'Opened tab ' + tab.id }); });
-    return true;
-  }
-  if (type === 'tabScrape') {
-    chrome.tabs.create({ url: data.url, active: false }, function(tab) {
-      setTimeout(function() {
-        chrome.scripting.executeScript({ target: { tabId: tab.id }, func: function() { return document.body.innerText.substring(0, 3000); } },
-        function(results) {
-          var text = results && results[0] ? results[0].result : 'Could not scrape';
-          sendResponse({ success: true, data: text });
-          chrome.tabs.remove(tab.id);
-        });
-      }, 3000);
-    });
-    return true;
-  }
-  if (type === 'tabRead') {
-    chrome.tabs.query({ active: true, currentWindow: true }, function(tabs) {
-      if (!tabs[0]) { sendResponse({ success: false, error: 'No active tab' }); return; }
-      chrome.scripting.executeScript({ target: { tabId: tabs[0].id }, func: function() { return document.body.innerText.substring(0, 3000); } },
-      function(results) { sendResponse({ success: true, data: results && results[0] ? results[0].result : 'Error' }); });
-    });
-    return true;
-  }
-  if (type === 'tabList') {
-    chrome.tabs.query({}, function(tabs) {
-      var list = tabs.map(function(t) { return t.id + ': ' + t.title.substring(0, 50); }).join('\n');
-      sendResponse({ success: true, data: list });
-    });
-    return true;
-  }
-  if (type === 'tabClose') { chrome.tabs.remove(parseInt(data.tabId), function() { sendResponse({ success: true }); }); return true; }
-  if (type === 'tabClick') {
-    chrome.tabs.query({ active: true, currentWindow: true }, function(tabs) {
-      if (!tabs[0]) return;
-      chrome.scripting.executeScript({ target: { tabId: tabs[0].id }, func: function(sel) { var el = document.querySelector(sel); if(el){el.click();return 'Clicked';}return 'Not found'; }, args: [data.selector] },
-      function(r) { sendResponse({ success: true, data: r&&r[0]?r[0].result:'Error' }); });
-    });
-    return true;
-  }
-  if (type === 'tabType') {
-    chrome.tabs.query({ active: true, currentWindow: true }, function(tabs) {
-      if (!tabs[0]) return;
-      chrome.scripting.executeScript({ target: { tabId: tabs[0].id }, func: function(sel,txt) { var el = document.querySelector(sel); if(el){el.value=txt;el.dispatchEvent(new Event('input',{bubbles:true}));return 'Typed';}return 'Not found'; }, args: [data.selector,data.text] },
-      function(r) { sendResponse({ success: true, data: r&&r[0]?r[0].result:'Error' }); });
-    });
-    return true;
-  }
-  if (type === 'tabWait') { setTimeout(function() { sendResponse({ success: true }); }, Math.min(data.ms,30000)); return true; }
-  if (type === 'browse') {
-    chrome.tabs.create({ url: 'https://www.google.com/search?q=' + encodeURIComponent(data.query) }, function() { sendResponse({ success: true, data: 'Searching: ' + data.query }); });
-    return true;
-  }
-
-  // ── SKILL TAGS ──
-  if (type === 'skillCreate') { createSkillDoc(data.name, data.content).then(function(id) { sendResponse({ success: true, data: 'Skill created: ' + data.name }); }).catch(function(e) { sendResponse({ success: false, error: e.message }); }); return true; }
-  if (type === 'skillSearch') { searchSkills(data.query).then(function(r) { sendResponse({ success: true, data: r }); }).catch(function(e) { sendResponse({ success: false, error: e.message }); }); return true; }
-  if (type === 'skillRecall') { recallSkill(data.name).then(function(c) { sendResponse({ success: true, data: c }); }).catch(function(e) { sendResponse({ success: false, error: e.message }); }); return true; }
-  if (type === 'skillImprove') { improveSkill(data.name, data.improvement).then(function() { sendResponse({ success: true, message: 'Skill improved' }); }).catch(function(e) { sendResponse({ success: false, error: e.message }); }); return true; }
-  if (type === 'skillList') { listSkills().then(function(l) { sendResponse({ success: true, data: l }); }).catch(function(e) { sendResponse({ success: false, error: e.message }); }); return true; }
-
-  // ── SCHEDULER TAGS ──
-  if (type === 'scheduleTask') { createCalendarEvent(data.name, data.when, data.action).then(function(id) { sendResponse({ success: true, data: 'Scheduled: ' + data.name }); }).catch(function(e) { sendResponse({ success: false, error: e.message }); }); return true; }
-  if (type === 'scheduleList') { listScheduledTasks().then(function(t) { sendResponse({ success: true, data: t }); }).catch(function(e) { sendResponse({ success: false, error: e.message }); }); return true; }
-  if (type === 'scheduleCancel') { cancelScheduledTask(data.name).then(function() { sendResponse({ success: true }); }).catch(function(e) { sendResponse({ success: false, error: e.message }); }); return true; }
-
-  // ── MULTI-AGENT TAGS ──
-  if (type === 'spawnAgent') { spawnSubAgent(data.name, data.role).then(function() { sendResponse({ success: true, data: 'Agent spawned: ' + data.name }); }).catch(function(e) { sendResponse({ success: false, error: e.message }); }); return true; }
-  if (type === 'agentMsg') { messageAgent(data.agent, data.message).then(function() { sendResponse({ success: true }); }).catch(function(e) { sendResponse({ success: false, error: e.message }); }); return true; }
-  if (type === 'assignTask') { assignTaskToAgent(data.agent, data.task).then(function() { sendResponse({ success: true }); }).catch(function(e) { sendResponse({ success: false, error: e.message }); }); return true; }
-  if (type === 'agentList') { listAgents().then(function(a) { sendResponse({ success: true, data: a }); }).catch(function(e) { sendResponse({ success: false, error: e.message }); }); return true; }
-  if (type === 'agentDone') { retireAgent(data.agent).then(function() { sendResponse({ success: true }); }).catch(function(e) { sendResponse({ success: false, error: e.message }); }); return true; }
-
-  // ── EMAIL TAGS ──
-  if (type === 'emailNotify') { sendEmail(data.to, data.subject, data.body).then(function() { sendResponse({ success: true, message: 'Email sent' }); }).catch(function(e) { sendResponse({ success: false, error: e.message }); }); return true; }
-  if (type === 'emailReport') {
-    getToken(false).then(function(t) { return fetch('https://www.googleapis.com/oauth2/v1/userinfo?alt=json', { headers: { 'Authorization': 'Bearer ' + t } }).then(function(r){return r.json();}); })
-    .then(function(u) { return sendEmail(u.email, data.subject, data.body); })
-    .then(function() { sendResponse({ success: true }); }).catch(function(e) { sendResponse({ success: false, error: e.message }); });
-    return true;
-  }
-  if (type === 'emailCheck') { checkInbox().then(function(m) { sendResponse({ success: true, data: m }); }).catch(function(e) { sendResponse({ success: false, error: e.message }); }); return true; }
-
-  // ── SESSION COMPLETE ──
-  if (type === 'sessionComplete') {
-    appendToDoc('[SESSION COMPLETE] ' + data.summary + ' (' + new Date().toISOString() + ')');
-    state.sessionActive = false; saveState();
-    sendResponse({ success: true });
-    return false;
-  }
-
-  sendResponse({ success: false, error: 'Unknown: ' + type });
-  return false;
-});
-
-// ═══════════════════════════════════════════
-// SKILLS (Google Docs)
-// ═══════════════════════════════════════════
-function createSkillDoc(name, content) {
+function logSession(action, data) {
   return getToken(false).then(function(token) {
-    return fetch('https://docs.googleapis.com/v1/documents', {
-      method: 'POST', headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ title: 'AgentOS-Skill: ' + name })
-    }).then(function(r) { return r.json(); }).then(function(doc) {
-      var id = doc.documentId;
-      return fetch('https://docs.googleapis.com/v1/documents/' + id + ':batchUpdate', {
-        method: 'POST', headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ requests: [{ insertText: { location: { index: 1 }, text: '# Skill: ' + name + '\n\n' + content } }] })
-      }).then(function() { appendSheet('Skills', name + ',' + id + ',' + new Date().toISOString() + ',active'); return id; });
-    });
+    var row = [state.currentSessionId || 'none', new Date().toISOString(), '', action, '', data || ''];
+    return appendSheet(token, state.sheetId, 'Sessions!A:F', [row]);
   });
 }
 
-function searchSkills(query) {
-  return getToken(false).then(function(token) {
-    return fetch("https://www.googleapis.com/drive/v3/files?q=name+contains+'AgentOS-Skill'&fields=files(id,name)", { headers: { 'Authorization': 'Bearer ' + token } })
-    .then(function(r) { return r.json(); }).then(function(d) {
-      var files = (d.files||[]).filter(function(f) { return f.name.toLowerCase().includes(query.toLowerCase()); });
-      return files.map(function(f) { return f.name.replace('AgentOS-Skill: ',''); }).join(', ') || 'No skills found';
-    });
-  });
-}
-
-function recallSkill(name) {
-  return getToken(false).then(function(token) {
-    return fetch("https://www.googleapis.com/drive/v3/files?q=name+contains+'AgentOS-Skill:+" + encodeURIComponent(name) + "'&fields=files(id)", { headers: { 'Authorization': 'Bearer ' + token } })
-    .then(function(r) { return r.json(); }).then(function(d) {
-      if (!d.files||!d.files.length) return 'Skill not found: ' + name;
-      return readDocText(token, d.files[0].id);
-    });
-  });
-}
-
-function improveSkill(name, improvement) {
-  return getToken(false).then(function(token) {
-    return fetch("https://www.googleapis.com/drive/v3/files?q=name+contains+'AgentOS-Skill:+" + encodeURIComponent(name) + "'&fields=files(id)", { headers: { 'Authorization': 'Bearer ' + token } })
-    .then(function(r) { return r.json(); }).then(function(d) {
-      if (!d.files||!d.files.length) throw new Error('Skill not found');
-      var id = d.files[0].id;
-      return fetch('https://docs.googleapis.com/v1/documents/' + id, { headers: { 'Authorization': 'Bearer ' + token } })
-      .then(function(r) { return r.json(); }).then(function(doc) {
-        var end = doc.body.content[doc.body.content.length-1].endIndex - 1;
-        return fetch('https://docs.googleapis.com/v1/documents/' + id + ':batchUpdate', {
-          method: 'POST', headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ requests: [{ insertText: { location: { index: end }, text: '\n\n## Update ' + new Date().toISOString() + '\n' + improvement } }] })
-        });
+// ====================================
+// SKILLS SYSTEM (delegates to skills.js)
+// ====================================
+function createSkillDoc(token, name, code) {
+  return fetch('https://docs.googleapis.com/v1/documents', {
+    method: 'POST',
+    headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ title: 'AgentOS-Skill: ' + name })
+  }).then(function(r) { return r.json(); }).then(function(doc) {
+    return fetch('https://docs.googleapis.com/v1/documents/' + doc.documentId + ':batchUpdate', {
+      method: 'POST',
+      headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ requests: [{ insertText: { location: { index: 1 }, text: code } }] })
+    }).then(function() {
+      return appendSheet(token, state.sheetId, 'Skills!A:D', [[name, doc.documentId, new Date().toISOString(), '0']]).then(function() {
+        return doc.documentId;
       });
     });
   });
 }
 
-function listSkills() {
-  return getToken(false).then(function(token) {
-    return fetch("https://www.googleapis.com/drive/v3/files?q=name+contains+'AgentOS-Skill'&fields=files(name,modifiedTime)", { headers: { 'Authorization': 'Bearer ' + token } })
-    .then(function(r) { return r.json(); }).then(function(d) {
-      var f = d.files||[];
-      return f.length ? f.map(function(x) { return x.name.replace('AgentOS-Skill: ',''); }).join(', ') : 'No skills yet';
-    });
+function searchSkills(token, query) {
+  return readSheet(token, state.sheetId, 'Skills!A:D').then(function(data) {
+    if (!data.values) return 'No skills found';
+    var matches = data.values.filter(function(row) { return row[0] && row[0].toLowerCase().includes(query.toLowerCase()); });
+    return matches.length ? matches.map(function(r) { return r[0] + ' (uses: ' + (r[3]||0) + ')'; }).join(', ') : 'No matching skills';
   });
 }
 
-// ═══════════════════════════════════════════
-// CALENDAR (Scheduler)
-// ═══════════════════════════════════════════
-function createCalendarEvent(name, when, action) {
-  return getToken(false).then(function(token) {
-    var start = parseTime(when);
-    var end = new Date(start.getTime() + 1800000);
-    return fetch('https://www.googleapis.com/calendar/v3/calendars/primary/events', {
-      method: 'POST', headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ summary: 'AgentOS: ' + name, description: 'Action: ' + action, start: { dateTime: start.toISOString() }, end: { dateTime: end.toISOString() } })
-    }).then(function(r) { return r.json(); }).then(function(e) {
-      appendSheet('Tasks', name + ',' + when + ',' + action + ',' + e.id + ',scheduled');
-      return e.id;
-    });
-  });
-}
-
-function parseTime(when) {
-  var now = new Date();
-  var w = when.toLowerCase();
-  if (w.includes('minute')) return new Date(now.getTime() + (parseInt(w)||30)*60000);
-  if (w.includes('hour')) return new Date(now.getTime() + (parseInt(w)||1)*3600000);
-  if (w === 'tomorrow') { var t = new Date(now); t.setDate(t.getDate()+1); t.setHours(9,0,0,0); return t; }
-  var p = new Date(when);
-  return isNaN(p.getTime()) ? new Date(now.getTime()+3600000) : p;
-}
-
-function listScheduledTasks() {
-  return getToken(false).then(function(token) {
-    return fetch('https://www.googleapis.com/calendar/v3/calendars/primary/events?timeMin=' + new Date().toISOString() + '&q=AgentOS&maxResults=10&orderBy=startTime&singleEvents=true', { headers: { 'Authorization': 'Bearer ' + token } })
-    .then(function(r) { return r.json(); }).then(function(d) {
-      var e = d.items||[];
-      return e.length ? e.map(function(x) { return x.summary.replace('AgentOS: ','') + ' at ' + (x.start.dateTime||x.start.date); }).join(', ') : 'No scheduled tasks';
-    });
-  });
-}
-
-function cancelScheduledTask(name) {
-  return getToken(false).then(function(token) {
-    return fetch('https://www.googleapis.com/calendar/v3/calendars/primary/events?q=AgentOS:+' + encodeURIComponent(name) + '&maxResults=1&singleEvents=true&timeMin=' + new Date().toISOString(), { headers: { 'Authorization': 'Bearer ' + token } })
-    .then(function(r) { return r.json(); }).then(function(d) {
-      if (!d.items||!d.items.length) throw new Error('Not found');
-      return fetch('https://www.googleapis.com/calendar/v3/calendars/primary/events/' + d.items[0].id, { method: 'DELETE', headers: { 'Authorization': 'Bearer ' + token } });
-    });
-  });
-}
-
-// ═══════════════════════════════════════════
-// EMAIL (Gmail)
-// ═══════════════════════════════════════════
-function sendEmail(to, subject, body) {
-  return getToken(false).then(function(token) {
-    var raw = 'To: ' + to + '\r\nSubject: ' + subject + '\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n' + body;
-    var encoded = btoa(unescape(encodeURIComponent(raw))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
-    return fetch('https://www.googleapis.com/gmail/v1/users/me/messages/send', {
-      method: 'POST', headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ raw: encoded })
-    });
-  });
-}
-
-function checkInbox() {
-  return getToken(false).then(function(token) {
-    return fetch('https://www.googleapis.com/gmail/v1/users/me/messages?maxResults=5&q=is:unread', { headers: { 'Authorization': 'Bearer ' + token } })
-    .then(function(r) { return r.json(); }).then(function(d) {
-      if (!d.messages||!d.messages.length) return 'No unread emails';
-      return d.messages.length + ' unread emails';
-    });
-  });
-}
-
-// ═══════════════════════════════════════════
-// MULTI-AGENT (Google Drive)
-// ═══════════════════════════════════════════
-function spawnSubAgent(name, role) {
-  return getToken(false).then(function(token) {
-    return fetch('https://docs.googleapis.com/v1/documents', {
-      method: 'POST', headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ title: 'AgentOS-Agent: ' + name })
+function recallSkill(token, name) {
+  return readSheet(token, state.sheetId, 'Skills!A:D').then(function(data) {
+    if (!data.values) return 'Skill not found: ' + name;
+    var skill = data.values.find(function(r) { return r[0] === name; });
+    if (!skill) return 'Skill not found: ' + name;
+    return fetch('https://docs.googleapis.com/v1/documents/' + skill[1], {
+      headers: { 'Authorization': 'Bearer ' + token }
     }).then(function(r) { return r.json(); }).then(function(doc) {
-      var id = doc.documentId;
-      var soul = '# Agent: ' + name + '\nRole: ' + role + '\nStatus: active\n\n## Inbox\n\n## Tasks\n\n## Output\n';
-      return fetch('https://docs.googleapis.com/v1/documents/' + id + ':batchUpdate', {
-        method: 'POST', headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ requests: [{ insertText: { location: { index: 1 }, text: soul } }] })
-      }).then(function() { appendSheet('Agents', name + ',' + role + ',' + id + ',' + new Date().toISOString() + ',active'); });
+      var text = '';
+      if (doc.body && doc.body.content) {
+        doc.body.content.forEach(function(block) {
+          if (block.paragraph && block.paragraph.elements) {
+            block.paragraph.elements.forEach(function(el) { if (el.textRun) text += el.textRun.content; });
+          }
+        });
+      }
+      return text;
+    });
+  });
+}
+
+function improveSkill(token, name, newCode) {
+  return readSheet(token, state.sheetId, 'Skills!A:D').then(function(data) {
+    if (!data.values) return 'Skill not found';
+    var skill = data.values.find(function(r) { return r[0] === name; });
+    if (!skill) return 'Skill not found: ' + name;
+    return appendToDoc(token, skill[1], '\n---IMPROVED---\n' + newCode);
+  });
+}
+
+function listSkills(token) {
+  return readSheet(token, state.sheetId, 'Skills!A:D').then(function(data) {
+    if (!data.values || data.values.length < 2) return 'No skills registered';
+    return data.values.slice(1).map(function(r) { return r[0] + ' (uses: ' + (r[3]||0) + ')'; }).join(', ');
+  });
+}
+
+// ====================================
+// SCHEDULER (Google Calendar)
+// ====================================
+function createCalendarEvent(token, title, time, recurrence) {
+  var start = parseTime(time);
+  var end = new Date(start.getTime() + 3600000);
+  var event = {
+    summary: '[AgentOS] ' + title,
+    start: { dateTime: start.toISOString() },
+    end: { dateTime: end.toISOString() },
+    description: 'AgentOS scheduled task'
+  };
+  if (recurrence) event.recurrence = ['RRULE:FREQ=' + recurrence.toUpperCase()];
+  return fetch('https://www.googleapis.com/calendar/v3/calendars/primary/events', {
+    method: 'POST',
+    headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
+    body: JSON.stringify(event)
+  }).then(function(r) { return r.json(); }).then(function(e) { return 'Scheduled: ' + e.summary + ' at ' + e.start.dateTime; });
+}
+
+function parseTime(time) {
+  if (time === 'now') return new Date();
+  if (time.match(/^\+\d+[mhd]$/)) {
+    var n = parseInt(time.slice(1)); var u = time.slice(-1);
+    var ms = u === 'm' ? n*60000 : u === 'h' ? n*3600000 : n*86400000;
+    return new Date(Date.now() + ms);
+  }
+  return new Date(time);
+}
+
+function listScheduledTasks(token) {
+  var now = new Date().toISOString();
+  return fetch('https://www.googleapis.com/calendar/v3/calendars/primary/events?timeMin=' + now + '&maxResults=20&q=AgentOS&orderBy=startTime&singleEvents=true', {
+    headers: { 'Authorization': 'Bearer ' + token }
+  }).then(function(r) { return r.json(); }).then(function(data) {
+    if (!data.items || !data.items.length) return 'No scheduled tasks';
+    return data.items.map(function(e) { return e.summary + ' @ ' + (e.start.dateTime || e.start.date); }).join('\n');
+  });
+}
+
+function cancelScheduledTask(token, query) {
+  return fetch('https://www.googleapis.com/calendar/v3/calendars/primary/events?q=' + encodeURIComponent(query) + '&maxResults=5', {
+    headers: { 'Authorization': 'Bearer ' + token }
+  }).then(function(r) { return r.json(); }).then(function(data) {
+    if (!data.items || !data.items.length) return 'No matching events found';
+    return fetch('https://www.googleapis.com/calendar/v3/calendars/primary/events/' + data.items[0].id, {
+      method: 'DELETE', headers: { 'Authorization': 'Bearer ' + token }
+    }).then(function() { return 'Cancelled: ' + data.items[0].summary; });
+  });
+}
+
+// ====================================
+// EMAIL (Gmail)
+// ====================================
+function sendEmail(token, to, subject, body) {
+  var raw = btoa('To: ' + to + '\r\nSubject: ' + subject + '\r\nContent-Type: text/plain\r\n\r\n' + body).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  return fetch('https://gmail.googleapis.com/gmail/v1/users/me/messages/send', {
+    method: 'POST',
+    headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ raw: raw })
+  }).then(function(r) { return r.json(); }).then(function(m) { return 'Email sent (id: ' + m.id + ')'; });
+}
+
+function checkInbox(token) {
+  return fetch('https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=5&q=is:unread', {
+    headers: { 'Authorization': 'Bearer ' + token }
+  }).then(function(r) { return r.json(); }).then(function(data) {
+    if (!data.messages || !data.messages.length) return 'No unread emails';
+    var promises = data.messages.slice(0, 3).map(function(msg) {
+      return fetch('https://gmail.googleapis.com/gmail/v1/users/me/messages/' + msg.id + '?format=metadata&metadataHeaders=Subject&metadataHeaders=From', {
+        headers: { 'Authorization': 'Bearer ' + token }
+      }).then(function(r) { return r.json(); });
+    });
+    return Promise.all(promises).then(function(msgs) {
+      return msgs.map(function(m) {
+        var subject = '', from = '';
+        m.payload.headers.forEach(function(h) {
+          if (h.name === 'Subject') subject = h.value;
+          if (h.name === 'From') from = h.value;
+        });
+        return from + ': ' + subject;
+      }).join('\n');
+    });
+  });
+}
+
+// ====================================
+// MULTI-AGENT
+// ====================================
+function spawnSubAgent(token, name, soul) {
+  return fetch('https://docs.googleapis.com/v1/documents', {
+    method: 'POST',
+    headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ title: 'AgentOS-Agent: ' + name })
+  }).then(function(r) { return r.json(); }).then(function(doc) {
+    return fetch('https://docs.googleapis.com/v1/documents/' + doc.documentId + ':batchUpdate', {
+      method: 'POST',
+      headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ requests: [{ insertText: { location: { index: 1 }, text: soul || 'Sub-agent: ' + name } }] })
+    }).then(function() {
+      return appendSheet(token, state.sheetId, 'Agents!A:E', [[name, doc.documentId, '', 'active', new Date().toISOString()]]).then(function() {
+        return 'Spawned agent: ' + name + ' (doc: ' + doc.documentId + ')';
+      });
     });
   });
 }
 
 function messageAgent(name, msg) {
-  return findAgentDoc(name).then(function(id) {
-    return getToken(false).then(function(token) {
-      return fetch('https://docs.googleapis.com/v1/documents/' + id, { headers: { 'Authorization': 'Bearer ' + token } })
-      .then(function(r) { return r.json(); }).then(function(doc) {
+  return getToken(false).then(function(token) {
+    return findAgentDoc(name).then(function(id) {
+      return fetch('https://docs.googleapis.com/v1/documents/' + id, {
+        headers: { 'Authorization': 'Bearer ' + token }
+      }).then(function(r) { return r.json(); }).then(function(doc) {
         var end = doc.body.content[doc.body.content.length-1].endIndex - 1;
         return fetch('https://docs.googleapis.com/v1/documents/' + id + ':batchUpdate', {
-          method: 'POST', headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
+          method: 'POST',
+          headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
           body: JSON.stringify({ requests: [{ insertText: { location: { index: end }, text: '\n[MSG] ' + msg } }] })
         });
       });
@@ -610,6 +443,227 @@ function listAgents() {
 
 function retireAgent(name) { return messageAgent(name, '[RETIRED] ' + new Date().toISOString()); }
 
-// ═══════════════════════════════════════════
-console.log('[AgentOS] Background v4.1 loaded - buildContext ready');
+// ====================================
+// MESSAGE ROUTER
+// ====================================
+chrome.runtime.onMessage.addListener(function(msg, sender, sendResponse) {
+  console.log('[AgentOS] Message:', msg.type);
+
+  if (msg.type === 'connect') {
+    autoProvision().then(function(r) { sendResponse(r); }).catch(function(e) { sendResponse({ error: e.message }); });
+    return true;
+  }
+
+  if (msg.type === 'getState') {
+    sendResponse({ connected: state.connected, docId: state.docId, sheetId: state.sheetId, sessionActive: state.sessionActive });
+    return;
+  }
+
+  if (msg.type === 'buildContext') {
+    buildContext().then(function(ctx) { sendResponse({ success: true, context: ctx }); })
+    .catch(function(e) { sendResponse({ error: e.message }); });
+    return true;
+  }
+
+  if (msg.type === 'startSession') {
+    state.sessionActive = true;
+    state.sessionCount++;
+    state.currentSessionId = 'S' + state.sessionCount + '-' + Date.now();
+    saveState();
+    logSession('START', 'Session started');
+    sendResponse({ sessionId: state.currentSessionId });
+    return;
+  }
+
+  if (msg.type === 'endSession') {
+    state.sessionActive = false;
+    saveState();
+    logSession('END', msg.summary || 'Session ended');
+    sendResponse({ success: true });
+    return;
+  }
+
+  // Doc operations
+  if (msg.type === 'saveNote') {
+    getToken(false).then(function(t) { return appendToDoc(t, state.docId, msg.text); })
+    .then(function() { sendResponse({ success: true }); })
+    .catch(function(e) { sendResponse({ error: e.message }); });
+    return true;
+  }
+
+  // Sheet operations
+  if (msg.type === 'sheetWrite') {
+    getToken(false).then(function(t) { return writeSheet(t, state.sheetId, msg.range, msg.values); })
+    .then(function(r) { sendResponse({ success: true, result: r }); })
+    .catch(function(e) { sendResponse({ error: e.message }); });
+    return true;
+  }
+
+  if (msg.type === 'sheetRead') {
+    getToken(false).then(function(t) { return readSheet(t, state.sheetId, msg.range); })
+    .then(function(r) { sendResponse({ success: true, data: r }); })
+    .catch(function(e) { sendResponse({ error: e.message }); });
+    return true;
+  }
+
+  if (msg.type === 'sheetAppend') {
+    getToken(false).then(function(t) { return appendSheet(t, state.sheetId, msg.range, msg.values); })
+    .then(function(r) { sendResponse({ success: true, result: r }); })
+    .catch(function(e) { sendResponse({ error: e.message }); });
+    return true;
+  }
+
+  // Task operations
+  if (msg.type === 'addTask') {
+    getToken(false).then(function(t) {
+      return appendSheet(t, state.sheetId, 'Tasks!A:E', [[msg.task, 'pending', msg.priority || 'normal', new Date().toISOString(), '']]);
+    }).then(function() { sendResponse({ success: true }); }).catch(function(e) { sendResponse({ error: e.message }); });
+    return true;
+  }
+
+  if (msg.type === 'taskDone') {
+    getToken(false).then(function(t) {
+      return appendToDoc(t, state.docId, '\n- DONE: ' + msg.task + ' (' + new Date().toISOString() + ')');
+    }).then(function() { sendResponse({ success: true }); }).catch(function(e) { sendResponse({ error: e.message }); });
+    return true;
+  }
+
+  // Skills
+  if (msg.type === 'skillCreate') {
+    getToken(false).then(function(t) { return createSkillDoc(t, msg.name, msg.code); })
+    .then(function(id) { sendResponse({ success: true, docId: id }); })
+    .catch(function(e) { sendResponse({ error: e.message }); });
+    return true;
+  }
+
+  if (msg.type === 'skillSearch') {
+    getToken(false).then(function(t) { return searchSkills(t, msg.query); })
+    .then(function(r) { sendResponse({ success: true, results: r }); })
+    .catch(function(e) { sendResponse({ error: e.message }); });
+    return true;
+  }
+
+  if (msg.type === 'skillRecall') {
+    getToken(false).then(function(t) { return recallSkill(t, msg.name); })
+    .then(function(r) { sendResponse({ success: true, code: r }); })
+    .catch(function(e) { sendResponse({ error: e.message }); });
+    return true;
+  }
+
+  if (msg.type === 'skillImprove') {
+    getToken(false).then(function(t) { return improveSkill(t, msg.name, msg.code); })
+    .then(function() { sendResponse({ success: true }); })
+    .catch(function(e) { sendResponse({ error: e.message }); });
+    return true;
+  }
+
+  if (msg.type === 'skillList') {
+    getToken(false).then(function(t) { return listSkills(t); })
+    .then(function(r) { sendResponse({ success: true, skills: r }); })
+    .catch(function(e) { sendResponse({ error: e.message }); });
+    return true;
+  }
+
+  // Scheduler
+  if (msg.type === 'scheduleTask') {
+    getToken(false).then(function(t) { return createCalendarEvent(t, msg.title, msg.time, msg.recurrence); })
+    .then(function(r) { sendResponse({ success: true, result: r }); })
+    .catch(function(e) { sendResponse({ error: e.message }); });
+    return true;
+  }
+
+  if (msg.type === 'scheduleList') {
+    getToken(false).then(function(t) { return listScheduledTasks(t); })
+    .then(function(r) { sendResponse({ success: true, tasks: r }); })
+    .catch(function(e) { sendResponse({ error: e.message }); });
+    return true;
+  }
+
+  if (msg.type === 'scheduleCancel') {
+    getToken(false).then(function(t) { return cancelScheduledTask(t, msg.query); })
+    .then(function(r) { sendResponse({ success: true, result: r }); })
+    .catch(function(e) { sendResponse({ error: e.message }); });
+    return true;
+  }
+
+  // Email
+  if (msg.type === 'emailNotify' || msg.type === 'emailReport') {
+    getToken(false).then(function(t) { return sendEmail(t, msg.to, msg.subject, msg.body); })
+    .then(function(r) { sendResponse({ success: true, result: r }); })
+    .catch(function(e) { sendResponse({ error: e.message }); });
+    return true;
+  }
+
+  if (msg.type === 'emailCheck') {
+    getToken(false).then(function(t) { return checkInbox(t); })
+    .then(function(r) { sendResponse({ success: true, inbox: r }); })
+    .catch(function(e) { sendResponse({ error: e.message }); });
+    return true;
+  }
+
+  // Multi-agent
+  if (msg.type === 'spawnAgent') {
+    getToken(false).then(function(t) { return spawnSubAgent(t, msg.name, msg.soul); })
+    .then(function(r) { sendResponse({ success: true, result: r }); })
+    .catch(function(e) { sendResponse({ error: e.message }); });
+    return true;
+  }
+
+  if (msg.type === 'agentMsg') {
+    messageAgent(msg.name, msg.message)
+    .then(function() { sendResponse({ success: true }); })
+    .catch(function(e) { sendResponse({ error: e.message }); });
+    return true;
+  }
+
+  if (msg.type === 'assignTask') {
+    assignTaskToAgent(msg.name, msg.task)
+    .then(function() { sendResponse({ success: true }); })
+    .catch(function(e) { sendResponse({ error: e.message }); });
+    return true;
+  }
+
+  if (msg.type === 'agentList') {
+    listAgents()
+    .then(function(r) { sendResponse({ success: true, agents: r }); })
+    .catch(function(e) { sendResponse({ error: e.message }); });
+    return true;
+  }
+
+  if (msg.type === 'agentDone') {
+    retireAgent(msg.name)
+    .then(function() { sendResponse({ success: true }); })
+    .catch(function(e) { sendResponse({ error: e.message }); });
+    return true;
+  }
+
+  // Browser tab operations
+  if (msg.type === 'tabOpen') {
+    chrome.tabs.create({ url: msg.url }, function(tab) { sendResponse({ success: true, tabId: tab.id }); });
+    return true;
+  }
+
+  if (msg.type === 'tabList') {
+    chrome.tabs.query({}, function(tabs) {
+      sendResponse({ success: true, tabs: tabs.map(function(t) { return { id: t.id, title: t.title, url: t.url }; }) });
+    });
+    return true;
+  }
+
+  if (msg.type === 'tabClose') {
+    chrome.tabs.remove(msg.tabId, function() { sendResponse({ success: true }); });
+    return true;
+  }
+
+  if (msg.type === 'tabScrape' || msg.type === 'tabRead') {
+    chrome.scripting.executeScript({ target: { tabId: msg.tabId }, func: function() { return document.body.innerText.substring(0, 5000); } },
+    function(results) {
+      sendResponse({ success: true, text: results && results[0] ? results[0].result : 'Could not read tab' });
+    });
+    return true;
+  }
+});
+
+// ====================================
+console.log('[AgentOS] Background v4.2 loaded - buildContext with interactive auth ready');
 
