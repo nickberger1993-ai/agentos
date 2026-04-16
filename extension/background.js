@@ -524,7 +524,7 @@ chrome.runtime.onMessage.addListener(function(msg, sender, sendResponse) {
 
   if (msg.type === 'buildContext') {
     buildContext().then(function(ctx) {
-      sendResponse({ success: true, context: ctx });
+      sendResponse({ success: true, data: ctx });
     }).catch(function(e) {
       console.error('[AgentOS] buildContext error:', e.message);
       sendResponse({ error: e.message });
@@ -721,4 +721,5 @@ chrome.runtime.onMessage.addListener(function(msg, sender, sendResponse) {
 
 // ====================================
 console.log('[AgentOS] Background v4.3 loaded - launchWebAuthFlow auth ready');
+
 
