@@ -3,7 +3,6 @@
   "name": "AgentOS",
   "version": "4.2.0",
   "description": "Turn any AI into a persistent autonomous agent. Free. No server. Just Google.",
-  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAr1acMOAhawmBDAOgyI3GJOl9jQb6brat1mnwPHDkEMREFJCS3PgY3sDXsHTjQgPjAqVpnGPR0GagBK9uSmKJMJKlz5EUFBnZiGMESnRDCgNSBpXjGKYNOmqbpVmRHYPFnGPfQ3WXK8MTmGlrnFClxHGxTI5qNRkxS7g9YFU1Bv3pAfN3DKJVcVbMJJb1ceANmkOKPCPmFODjI3K7gjyrFGEZ0sh8MvPUGDxI8Rl1FfEXHFmLdQqPUoaDMPknhMJ0JRa0p5WKdojcNYdGgAkbhR3LMZrK5jNGErq0FaAVDPGR7h8bnamHBnmMlCPBBn5FmNlOFVvxSrV5Dn3c7mcwIDAQAB",
   "permissions": [
     "identity",
     "storage",
