@@ -1,6 +1,7 @@
-// AgentOS Bridge - Background Service Worker v4.2.0
-// FIX: buildContext uses getToken(true) for interactive auth on first use
-// FIX: buildContext auto-provisions Doc+Sheet if missing
+// AgentOS Bridge - Background Service Worker v4.3.0
+// FIX: Uses launchWebAuthFlow instead of getAuthToken for reliable OAuth
+// Uses Web Application client (not Chrome Extension client)
+// This avoids extension ID mismatch issues entirely
 
 try {
   importScripts('skills.js', 'scheduler.js', 'multiagent.js', 'gateway.js', 'templates.js');
@@ -9,11 +10,24 @@ try {
 }
 
 // ====================================
+// CONFIG
+// ====================================
+var WEB_CLIENT_ID = '930312309217-9tgvu1i7o3hrogrmnooplbpgminq54m9.apps.googleusercontent.com';
+var SCOPES = [
+  'https://www.googleapis.com/auth/documents',
+  'https://www.googleapis.com/auth/spreadsheets',
+  'https://www.googleapis.com/auth/drive.file',
+  'https://www.googleapis.com/auth/calendar',
+  'https://www.googleapis.com/auth/gmail.modify'
+].join(' ');
+
+// ====================================
 // STATE
 // ====================================
 var state = {
   connected: false,
   token: null,
+  tokenExpiry: 0,
   docId: null,
   sheetId: null,
   sessionActive: false,
@@ -33,17 +47,69 @@ function saveState() {
 }
 
 // ====================================
-// AUTH
+// AUTH via launchWebAuthFlow
 // ====================================
 function getToken(interactive) {
   return new Promise(function(resolve, reject) {
-    if (state.token) { resolve(state.token); return; }
-    chrome.identity.getAuthToken({ interactive: interactive }, function(token) {
-      if (chrome.runtime.lastError) { reject(chrome.runtime.lastError); return; }
-      state.token = token;
+    // If we have a valid cached token, use it
+    if (state.token && Date.now() < state.tokenExpiry) {
+      resolve(state.token);
+      return;
+    }
+    // Clear expired token
+    state.token = null;
+    state.tokenExpiry = 0;
+
+    if (!interactive) {
+      reject(new Error('No valid token and interactive=false'));
+      return;
+    }
+
+    // Use launchWebAuthFlow with implicit grant
+    var redirectUrl = chrome.identity.getRedirectURL();
+    console.log('[AgentOS] Redirect URL:', redirectUrl);
+
+    var authUrl = 'https://accounts.google.com/o/oauth2/v2/auth'
+      + '?client_id=' + encodeURIComponent(WEB_CLIENT_ID)
+      + '&redirect_uri=' + encodeURIComponent(redirectUrl)
+      + '&response_type=token'
+      + '&scope=' + encodeURIComponent(SCOPES)
+      + '&prompt=consent';
+
+    console.log('[AgentOS] Starting launchWebAuthFlow...');
+
+    chrome.identity.launchWebAuthFlow({
+      url: authUrl,
+      interactive: true
+    }, function(responseUrl) {
+      if (chrome.runtime.lastError) {
+        console.error('[AgentOS] Auth error:', chrome.runtime.lastError.message);
+        reject(new Error(chrome.runtime.lastError.message));
+        return;
+      }
+      if (!responseUrl) {
+        reject(new Error('No response URL from auth flow'));
+        return;
+      }
+
+      console.log('[AgentOS] Auth response received');
+
+      // Parse access token from URL fragment
+      var hashParams = new URLSearchParams(responseUrl.split('#')[1]);
+      var accessToken = hashParams.get('access_token');
+      var expiresIn = parseInt(hashParams.get('expires_in') || '3600');
+
+      if (!accessToken) {
+        reject(new Error('No access token in response'));
+        return;
+      }
+
+      state.token = accessToken;
+      state.tokenExpiry = Date.now() + (expiresIn * 1000) - 60000; // 1 min buffer
       state.connected = true;
       saveState();
-      resolve(token);
+      console.log('[AgentOS] Token obtained, expires in', expiresIn, 'seconds');
+      resolve(accessToken);
     });
   });
 }
@@ -72,7 +138,6 @@ function createDoc(token) {
   }).then(function(r) { return r.json(); }).then(function(doc) {
     state.docId = doc.documentId;
     saveState();
-    // Initialize with default SOUL content
     var soulContent = '# AgentOS SOUL\n\n## Identity\nI am an AI agent powered by AgentOS.\n\n## Goals\n- Help the user with tasks\n- Learn and improve over time\n- Use tools efficiently\n\n## Notes\n(none yet)\n\n## TODO\n- Introduce myself to the user\n\n## DONE\n(none yet)\n';
     return fetch('https://docs.googleapis.com/v1/documents/' + doc.documentId + ':batchUpdate', {
       method: 'POST',
@@ -101,7 +166,6 @@ function createSheet(token) {
   }).then(function(r) { return r.json(); }).then(function(sheet) {
     state.sheetId = sheet.spreadsheetId;
     saveState();
-    // Add headers to each tab
     var headerRequests = [
       putSheet(token, sheet.spreadsheetId, 'Sessions!A1:F1', [['SessionID', 'Start', 'End', 'Status', 'Tags', 'Summary']]),
       putSheet(token, sheet.spreadsheetId, 'Skills!A1:D1', [['Name', 'DocID', 'Created', 'Uses']]),
@@ -123,17 +187,15 @@ function putSheet(token, sheetId, range, values) {
 }
 
 // ====================================
-// BUILD CONTEXT (v4.2 - interactive auth + auto-provision)
+// BUILD CONTEXT (v4.3 - launchWebAuthFlow + auto-provision)
 // ====================================
 function buildContext() {
   return getToken(true).then(function(token) {
-    // Auto-provision Doc+Sheet if missing
     var provisionPromise = Promise.resolve();
     if (!state.docId || !state.sheetId) {
       provisionPromise = autoProvision();
     }
     return provisionPromise.then(function() {
-      // Read everything in parallel
       return Promise.all([
         readDocText(token, state.docId),
         readSheetSafe(token, state.sheetId, 'Sessions!A2:F20'),
@@ -154,7 +216,7 @@ function buildContext() {
 }
 
 function readDocText(token, docId) {
-  if (!docId) return Promise.resolve('No SOUL doc found. Connect your Google account first.');
+  if (!docId) return Promise.resolve('No SOUL doc found.');
   return fetch('https://docs.googleapis.com/v1/documents/' + docId, {
     headers: { 'Authorization': 'Bearer ' + token }
   }).then(function(r) { return r.json(); }).then(function(doc) {
@@ -223,14 +285,14 @@ function appendSheet(token, sheetId, range, values) {
 }
 
 function logSession(action, data) {
-  return getToken(false).then(function(token) {
+  return getToken(true).then(function(token) {
     var row = [state.currentSessionId || 'none', new Date().toISOString(), '', action, '', data || ''];
     return appendSheet(token, state.sheetId, 'Sessions!A:F', [row]);
-  });
+  }).catch(function(e) { console.warn('[AgentOS] logSession error:', e.message); });
 }
 
 // ====================================
-// SKILLS SYSTEM (delegates to skills.js)
+// SKILLS SYSTEM
 // ====================================
 function createSkillDoc(token, name, code) {
   return fetch('https://docs.googleapis.com/v1/documents', {
@@ -243,9 +305,7 @@ function createSkillDoc(token, name, code) {
       headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
       body: JSON.stringify({ requests: [{ insertText: { location: { index: 1 }, text: code } }] })
     }).then(function() {
-      return appendSheet(token, state.sheetId, 'Skills!A:D', [[name, doc.documentId, new Date().toISOString(), '0']]).then(function() {
-        return doc.documentId;
-      });
+      return appendSheet(token, state.sheetId, 'Skills!A:D', [[name, doc.documentId, new Date().toISOString(), '0']]).then(function() { return doc.documentId; });
     });
   });
 }
@@ -318,7 +378,8 @@ function createCalendarEvent(token, title, time, recurrence) {
 function parseTime(time) {
   if (time === 'now') return new Date();
   if (time.match(/^\+\d+[mhd]$/)) {
-    var n = parseInt(time.slice(1)); var u = time.slice(-1);
+    var n = parseInt(time.slice(1));
+    var u = time.slice(-1);
     var ms = u === 'm' ? n*60000 : u === 'h' ? n*3600000 : n*86400000;
     return new Date(Date.now() + ms);
   }
@@ -403,7 +464,7 @@ function spawnSubAgent(token, name, soul) {
 }
 
 function messageAgent(name, msg) {
-  return getToken(false).then(function(token) {
+  return getToken(true).then(function(token) {
     return findAgentDoc(name).then(function(id) {
       return fetch('https://docs.googleapis.com/v1/documents/' + id, {
         headers: { 'Authorization': 'Bearer ' + token }
@@ -422,9 +483,10 @@ function messageAgent(name, msg) {
 function assignTaskToAgent(name, task) { return messageAgent(name, '[TASK] ' + task); }
 
 function findAgentDoc(name) {
-  return getToken(false).then(function(token) {
-    return fetch("https://www.googleapis.com/drive/v3/files?q=name+contains+'AgentOS-Agent:+" + encodeURIComponent(name) + "'&fields=files(id)", { headers: { 'Authorization': 'Bearer ' + token } })
-    .then(function(r) { return r.json(); }).then(function(d) {
+  return getToken(true).then(function(token) {
+    return fetch("https://www.googleapis.com/drive/v3/files?q=name+contains+'AgentOS-Agent:+" + encodeURIComponent(name) + "'&fields=files(id)", {
+      headers: { 'Authorization': 'Bearer ' + token }
+    }).then(function(r) { return r.json(); }).then(function(d) {
       if (!d.files||!d.files.length) throw new Error('Agent not found: ' + name);
       return d.files[0].id;
     });
@@ -432,9 +494,10 @@ function findAgentDoc(name) {
 }
 
 function listAgents() {
-  return getToken(false).then(function(token) {
-    return fetch("https://www.googleapis.com/drive/v3/files?q=name+contains+'AgentOS-Agent'&fields=files(name)", { headers: { 'Authorization': 'Bearer ' + token } })
-    .then(function(r) { return r.json(); }).then(function(d) {
+  return getToken(true).then(function(token) {
+    return fetch("https://www.googleapis.com/drive/v3/files?q=name+contains+'AgentOS-Agent'&fields=files(name)", {
+      headers: { 'Authorization': 'Bearer ' + token }
+    }).then(function(r) { return r.json(); }).then(function(d) {
       var f = d.files||[];
       return f.length ? f.map(function(x) { return x.name.replace('AgentOS-Agent: ',''); }).join(', ') : 'No agents';
     });
@@ -460,8 +523,12 @@ chrome.runtime.onMessage.addListener(function(msg, sender, sendResponse) {
   }
 
   if (msg.type === 'buildContext') {
-    buildContext().then(function(ctx) { sendResponse({ success: true, context: ctx }); })
-    .catch(function(e) { sendResponse({ error: e.message }); });
+    buildContext().then(function(ctx) {
+      sendResponse({ success: true, context: ctx });
+    }).catch(function(e) {
+      console.error('[AgentOS] buildContext error:', e.message);
+      sendResponse({ error: e.message });
+    });
     return true;
   }
 
@@ -485,7 +552,7 @@ chrome.runtime.onMessage.addListener(function(msg, sender, sendResponse) {
 
   // Doc operations
   if (msg.type === 'saveNote') {
-    getToken(false).then(function(t) { return appendToDoc(t, state.docId, msg.text); })
+    getToken(true).then(function(t) { return appendToDoc(t, state.docId, msg.text); })
     .then(function() { sendResponse({ success: true }); })
     .catch(function(e) { sendResponse({ error: e.message }); });
     return true;
@@ -493,21 +560,21 @@ chrome.runtime.onMessage.addListener(function(msg, sender, sendResponse) {
 
   // Sheet operations
   if (msg.type === 'sheetWrite') {
-    getToken(false).then(function(t) { return writeSheet(t, state.sheetId, msg.range, msg.values); })
+    getToken(true).then(function(t) { return writeSheet(t, state.sheetId, msg.range, msg.values); })
     .then(function(r) { sendResponse({ success: true, result: r }); })
     .catch(function(e) { sendResponse({ error: e.message }); });
     return true;
   }
 
   if (msg.type === 'sheetRead') {
-    getToken(false).then(function(t) { return readSheet(t, state.sheetId, msg.range); })
+    getToken(true).then(function(t) { return readSheet(t, state.sheetId, msg.range); })
     .then(function(r) { sendResponse({ success: true, data: r }); })
     .catch(function(e) { sendResponse({ error: e.message }); });
     return true;
   }
 
   if (msg.type === 'sheetAppend') {
-    getToken(false).then(function(t) { return appendSheet(t, state.sheetId, msg.range, msg.values); })
+    getToken(true).then(function(t) { return appendSheet(t, state.sheetId, msg.range, msg.values); })
     .then(function(r) { sendResponse({ success: true, result: r }); })
     .catch(function(e) { sendResponse({ error: e.message }); });
     return true;
@@ -515,14 +582,14 @@ chrome.runtime.onMessage.addListener(function(msg, sender, sendResponse) {
 
   // Task operations
   if (msg.type === 'addTask') {
-    getToken(false).then(function(t) {
+    getToken(true).then(function(t) {
       return appendSheet(t, state.sheetId, 'Tasks!A:E', [[msg.task, 'pending', msg.priority || 'normal', new Date().toISOString(), '']]);
     }).then(function() { sendResponse({ success: true }); }).catch(function(e) { sendResponse({ error: e.message }); });
     return true;
   }
 
   if (msg.type === 'taskDone') {
-    getToken(false).then(function(t) {
+    getToken(true).then(function(t) {
       return appendToDoc(t, state.docId, '\n- DONE: ' + msg.task + ' (' + new Date().toISOString() + ')');
     }).then(function() { sendResponse({ success: true }); }).catch(function(e) { sendResponse({ error: e.message }); });
     return true;
@@ -530,35 +597,31 @@ chrome.runtime.onMessage.addListener(function(msg, sender, sendResponse) {
 
   // Skills
   if (msg.type === 'skillCreate') {
-    getToken(false).then(function(t) { return createSkillDoc(t, msg.name, msg.code); })
+    getToken(true).then(function(t) { return createSkillDoc(t, msg.name, msg.code); })
     .then(function(id) { sendResponse({ success: true, docId: id }); })
     .catch(function(e) { sendResponse({ error: e.message }); });
     return true;
   }
-
   if (msg.type === 'skillSearch') {
-    getToken(false).then(function(t) { return searchSkills(t, msg.query); })
+    getToken(true).then(function(t) { return searchSkills(t, msg.query); })
     .then(function(r) { sendResponse({ success: true, results: r }); })
     .catch(function(e) { sendResponse({ error: e.message }); });
     return true;
   }
-
   if (msg.type === 'skillRecall') {
-    getToken(false).then(function(t) { return recallSkill(t, msg.name); })
+    getToken(true).then(function(t) { return recallSkill(t, msg.name); })
     .then(function(r) { sendResponse({ success: true, code: r }); })
     .catch(function(e) { sendResponse({ error: e.message }); });
     return true;
   }
-
   if (msg.type === 'skillImprove') {
-    getToken(false).then(function(t) { return improveSkill(t, msg.name, msg.code); })
+    getToken(true).then(function(t) { return improveSkill(t, msg.name, msg.code); })
     .then(function() { sendResponse({ success: true }); })
     .catch(function(e) { sendResponse({ error: e.message }); });
     return true;
   }
-
   if (msg.type === 'skillList') {
-    getToken(false).then(function(t) { return listSkills(t); })
+    getToken(true).then(function(t) { return listSkills(t); })
     .then(function(r) { sendResponse({ success: true, skills: r }); })
     .catch(function(e) { sendResponse({ error: e.message }); });
     return true;
@@ -566,21 +629,19 @@ chrome.runtime.onMessage.addListener(function(msg, sender, sendResponse) {
 
   // Scheduler
   if (msg.type === 'scheduleTask') {
-    getToken(false).then(function(t) { return createCalendarEvent(t, msg.title, msg.time, msg.recurrence); })
+    getToken(true).then(function(t) { return createCalendarEvent(t, msg.title, msg.time, msg.recurrence); })
     .then(function(r) { sendResponse({ success: true, result: r }); })
     .catch(function(e) { sendResponse({ error: e.message }); });
     return true;
   }
-
   if (msg.type === 'scheduleList') {
-    getToken(false).then(function(t) { return listScheduledTasks(t); })
+    getToken(true).then(function(t) { return listScheduledTasks(t); })
     .then(function(r) { sendResponse({ success: true, tasks: r }); })
     .catch(function(e) { sendResponse({ error: e.message }); });
     return true;
   }
-
   if (msg.type === 'scheduleCancel') {
-    getToken(false).then(function(t) { return cancelScheduledTask(t, msg.query); })
+    getToken(true).then(function(t) { return cancelScheduledTask(t, msg.query); })
     .then(function(r) { sendResponse({ success: true, result: r }); })
     .catch(function(e) { sendResponse({ error: e.message }); });
     return true;
@@ -588,14 +649,13 @@ chrome.runtime.onMessage.addListener(function(msg, sender, sendResponse) {
 
   // Email
   if (msg.type === 'emailNotify' || msg.type === 'emailReport') {
-    getToken(false).then(function(t) { return sendEmail(t, msg.to, msg.subject, msg.body); })
+    getToken(true).then(function(t) { return sendEmail(t, msg.to, msg.subject, msg.body); })
     .then(function(r) { sendResponse({ success: true, result: r }); })
     .catch(function(e) { sendResponse({ error: e.message }); });
     return true;
   }
-
   if (msg.type === 'emailCheck') {
-    getToken(false).then(function(t) { return checkInbox(t); })
+    getToken(true).then(function(t) { return checkInbox(t); })
     .then(function(r) { sendResponse({ success: true, inbox: r }); })
     .catch(function(e) { sendResponse({ error: e.message }); });
     return true;
@@ -603,33 +663,29 @@ chrome.runtime.onMessage.addListener(function(msg, sender, sendResponse) {
 
   // Multi-agent
   if (msg.type === 'spawnAgent') {
-    getToken(false).then(function(t) { return spawnSubAgent(t, msg.name, msg.soul); })
+    getToken(true).then(function(t) { return spawnSubAgent(t, msg.name, msg.soul); })
     .then(function(r) { sendResponse({ success: true, result: r }); })
     .catch(function(e) { sendResponse({ error: e.message }); });
     return true;
   }
-
   if (msg.type === 'agentMsg') {
     messageAgent(msg.name, msg.message)
     .then(function() { sendResponse({ success: true }); })
     .catch(function(e) { sendResponse({ error: e.message }); });
     return true;
   }
-
   if (msg.type === 'assignTask') {
     assignTaskToAgent(msg.name, msg.task)
     .then(function() { sendResponse({ success: true }); })
     .catch(function(e) { sendResponse({ error: e.message }); });
     return true;
   }
-
   if (msg.type === 'agentList') {
     listAgents()
     .then(function(r) { sendResponse({ success: true, agents: r }); })
     .catch(function(e) { sendResponse({ error: e.message }); });
     return true;
   }
-
   if (msg.type === 'agentDone') {
     retireAgent(msg.name)
     .then(function() { sendResponse({ success: true }); })
@@ -642,22 +698,21 @@ chrome.runtime.onMessage.addListener(function(msg, sender, sendResponse) {
     chrome.tabs.create({ url: msg.url }, function(tab) { sendResponse({ success: true, tabId: tab.id }); });
     return true;
   }
-
   if (msg.type === 'tabList') {
     chrome.tabs.query({}, function(tabs) {
       sendResponse({ success: true, tabs: tabs.map(function(t) { return { id: t.id, title: t.title, url: t.url }; }) });
     });
     return true;
   }
-
   if (msg.type === 'tabClose') {
     chrome.tabs.remove(msg.tabId, function() { sendResponse({ success: true }); });
     return true;
   }
-
   if (msg.type === 'tabScrape' || msg.type === 'tabRead') {
-    chrome.scripting.executeScript({ target: { tabId: msg.tabId }, func: function() { return document.body.innerText.substring(0, 5000); } },
-    function(results) {
+    chrome.scripting.executeScript({
+      target: { tabId: msg.tabId },
+      func: function() { return document.body.innerText.substring(0, 5000); }
+    }, function(results) {
       sendResponse({ success: true, text: results && results[0] ? results[0].result : 'Could not read tab' });
     });
     return true;
@@ -665,5 +720,5 @@ chrome.runtime.onMessage.addListener(function(msg, sender, sendResponse) {
 });
 
 // ====================================
-console.log('[AgentOS] Background v4.2 loaded - buildContext with interactive auth ready');
+console.log('[AgentOS] Background v4.3 loaded - launchWebAuthFlow auth ready');
 
