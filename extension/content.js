@@ -1,8 +1,8 @@
-// AgentOS Bridge - Content Script v3.0.0
-// Session Loop Engine: autonomous agent feedback loop
-// Tags: TASK_DONE, ADD_TASK, SKIP, BROWSE, SHEET_*, SAVE_NOTE
-// TAB_OPEN, TAB_SCRAPE, TAB_CLICK, TAB_TYPE, TAB_READ, TAB_LIST, TAB_CLOSE, TAB_WAIT
-// NEW v3.0: SESSION_COMPLETE, startSession/endSession, always-on result injection
+// AgentOS Bridge - Content Script v4.0.0
+// Full autonomous agent loop with Skills, Scheduler, Multi-Agent, Email Gateway
+// Tags: TASK_DONE, ADD_TASK, SKIP, BROWSE, SAVE_NOTE, SHEET_*, TAB_*,
+// SKILL_*, SCHEDULE_*, SPAWN_AGENT, AGENT_MSG, ASSIGN_TASK, AGENT_LIST, AGENT_DONE,
+// EMAIL_NOTIFY, EMAIL_REPORT, EMAIL_CHECK, SESSION_COMPLETE
 
 (function() {
   'use strict';
@@ -13,7 +13,6 @@
 
   // UI elements
   var statusBadge = null;
-  var readDocBtn = null;
   var loopBtn = null;
   var sessionBtn = null;
 
@@ -21,842 +20,492 @@
   var isConnected = false;
   var autoLoopEnabled = false;
   var loopTimer = null;
-  var loopCount = 0;
-  var MAX_LOOPS = 50;
-  var LOOP_DELAY = 5000;
-  var waitingForResponse = false;
-  var pendingToolActions = 0;
-  var actionResults = [];
-
-  // Session state
   var sessionActive = false;
+  var loopCount = 0;
   var currentSessionId = null;
-  var sessionActionCount = 0;
-  var sessionStartTime = null;
 
-  function isDuplicate(type, text) {
-    var key = type + ':' + text.trim().toLowerCase().replace(/\s+/g, ' ');
-    var now = Date.now();
-    if (processedTasks[key] && (now - processedTasks[key]) < DEDUP_WINDOW) return true;
-    processedTasks[key] = now;
-    return false;
-  }
+  // ═══════════════════════════════════════════
+  // UI INJECTION
+  // ═══════════════════════════════════════════
+  function injectUI() {
+    if (document.getElementById('agentos-badge')) return;
 
-  // ========= UI =========
-  function createBadge() {
+    var container = document.createElement('div');
+    container.id = 'agentos-container';
+    container.style.cssText = 'position:fixed;bottom:20px;right:20px;z-index:99999;font-family:system-ui,-apple-system,sans-serif;';
+
+    // Status badge
     statusBadge = document.createElement('div');
     statusBadge.id = 'agentos-badge';
-    statusBadge.innerHTML = '<span class="agentos-dot"></span> AgentOS';
-    document.body.appendChild(statusBadge);
+    statusBadge.style.cssText = 'background:#1a1a2e;color:#00d4ff;padding:8px 16px;border-radius:20px;font-size:13px;cursor:pointer;box-shadow:0 4px 20px rgba(0,212,255,0.3);border:1px solid #00d4ff33;display:flex;align-items:center;gap:8px;transition:all 0.3s;';
+    statusBadge.innerHTML = '<span style="width:8px;height:8px;border-radius:50%;background:#666;display:inline-block;" id="agentos-dot"></span><span id="agentos-status">AgentOS</span>';
 
-    readDocBtn = document.createElement('button');
-    readDocBtn.id = 'agentos-read-btn';
-    readDocBtn.textContent = 'Read Doc';
-    readDocBtn.addEventListener('click', function() { doReadAndPaste(); });
-    document.body.appendChild(readDocBtn);
+    // Controls panel (hidden by default)
+    var panel = document.createElement('div');
+    panel.id = 'agentos-panel';
+    panel.style.cssText = 'display:none;background:#1a1a2e;border:1px solid #00d4ff33;border-radius:12px;padding:12px;margin-bottom:8px;min-width:220px;box-shadow:0 8px 32px rgba(0,0,0,0.4);';
 
-    // Auto-loop toggle button
+    // Loop toggle button
     loopBtn = document.createElement('button');
     loopBtn.id = 'agentos-loop-btn';
-    loopBtn.textContent = 'Auto Loop: OFF';
-    loopBtn.style.cssText = 'position:fixed;bottom:100px;right:20px;z-index:99999;padding:8px 16px;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;background:#333;color:#888;transition:all 0.2s;';
-    loopBtn.addEventListener('click', function() { toggleAutoLoop(); });
-    document.body.appendChild(loopBtn);
+    loopBtn.style.cssText = 'width:100%;padding:8px;border:1px solid #00d4ff55;background:transparent;color:#00d4ff;border-radius:8px;cursor:pointer;font-size:12px;margin-bottom:6px;transition:all 0.2s;';
+    loopBtn.textContent = '\u25B6 Start Loop';
+    loopBtn.onclick = toggleLoop;
 
-    // Session start/end button
+    // Session button
     sessionBtn = document.createElement('button');
     sessionBtn.id = 'agentos-session-btn';
-    sessionBtn.textContent = 'Start Session';
-    sessionBtn.style.cssText = 'position:fixed;bottom:140px;right:20px;z-index:99999;padding:8px 16px;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;background:#0066ff;color:#fff;transition:all 0.2s;';
-    sessionBtn.addEventListener('click', function() {
-      if (sessionActive) endSession();
-      else startSession();
-    });
-    document.body.appendChild(sessionBtn);
-  }
+    sessionBtn.style.cssText = 'width:100%;padding:8px;border:1px solid #22c55e55;background:transparent;color:#22c55e;border-radius:8px;cursor:pointer;font-size:12px;margin-bottom:6px;transition:all 0.2s;';
+    sessionBtn.textContent = '\u26A1 Start Session';
+    sessionBtn.onclick = toggleSession;
 
-  function updateLoopButton() {
-    if (!loopBtn) return;
-    if (autoLoopEnabled) {
-      loopBtn.textContent = 'Auto Loop: ON (' + loopCount + ')';
-      loopBtn.style.background = '#00ff88';
-      loopBtn.style.color = '#000';
-    } else {
-      loopBtn.textContent = 'Auto Loop: OFF';
-      loopBtn.style.background = '#333';
-      loopBtn.style.color = '#888';
-    }
-  }
+    // Stats display
+    var stats = document.createElement('div');
+    stats.id = 'agentos-stats';
+    stats.style.cssText = 'color:#888;font-size:11px;text-align:center;padding-top:6px;border-top:1px solid #333;';
+    stats.textContent = 'Loops: 0 | Tags: 0';
 
-  function updateSessionButton() {
-    if (!sessionBtn) return;
-    if (sessionActive) {
-      sessionBtn.textContent = 'End Session (' + sessionActionCount + ')';
-      sessionBtn.style.background = '#ff4444';
-      sessionBtn.style.color = '#fff';
-    } else {
-      sessionBtn.textContent = 'Start Session';
-      sessionBtn.style.background = '#0066ff';
-      sessionBtn.style.color = '#fff';
-    }
-  }
+    panel.appendChild(loopBtn);
+    panel.appendChild(sessionBtn);
+    panel.appendChild(stats);
+    container.appendChild(panel);
+    container.appendChild(statusBadge);
+    document.body.appendChild(container);
 
-  function toggleAutoLoop() {
-    autoLoopEnabled = !autoLoopEnabled;
-    loopCount = 0;
-    if (!autoLoopEnabled && loopTimer) {
-      clearTimeout(loopTimer);
-      loopTimer = null;
-      waitingForResponse = false;
-    }
-    updateLoopButton();
-    showNotification(autoLoopEnabled ? 'Auto-loop ENABLED' : 'Auto-loop DISABLED');
-  }
+    statusBadge.onclick = function() {
+      panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+    };
 
-  function updateBadgeStatus(connected) {
-    isConnected = connected;
-    if (statusBadge) {
-      var dot = statusBadge.querySelector('.agentos-dot');
-      if (dot) dot.style.background = connected ? '#00ff88' : '#ff4444';
-    }
-  }
-
-  function showNotification(msg) {
-    var notif = document.createElement('div');
-    notif.className = 'agentos-notification';
-    notif.textContent = msg;
-    document.body.appendChild(notif);
-    setTimeout(function() { notif.remove(); }, 3000);
-                                          }
-
-  // ========= CHAT INPUT =========
-  function findChatInput() {
-    return document.querySelector('#prompt-textarea') ||
-      document.querySelector('[contenteditable="true"]') ||
-      document.querySelector('textarea[data-id]') ||
-      document.querySelector('textarea');
-  }
-
-  function insertTextIntoChat(input, text) {
-    if (input.tagName === 'TEXTAREA' || input.tagName === 'INPUT') {
-      input.value = text;
-      input.dispatchEvent(new Event('input', { bubbles: true }));
-    } else {
-      input.focus();
-      var p = input.querySelector('p');
-      if (p) p.textContent = text;
-      else input.textContent = text;
-      input.dispatchEvent(new Event('input', { bubbles: true }));
-    }
-  }
-
-  function clickSendButton() {
-    var sendBtn = document.querySelector('[data-testid="send-button"]') ||
-      document.querySelector('button[aria-label="Send prompt"]') ||
-      document.querySelector('button[aria-label="Send"]') ||
-      document.querySelector('form button[type="submit"]');
-    if (!sendBtn) {
-      var buttons = document.querySelectorAll('button');
-      for (var i = 0; i < buttons.length; i++) {
-        var btn = buttons[i];
-        if (btn.querySelector('svg') && btn.closest('form')) {
-          var rect = btn.getBoundingClientRect();
-          if (rect.bottom > window.innerHeight - 200) {
-            sendBtn = btn;
-            break;
-          }
-        }
-      }
-    }
-    if (sendBtn && !sendBtn.disabled) {
-      sendBtn.click();
-      return true;
-    }
-    var input = findChatInput();
-    if (input) {
-      input.dispatchEvent(new KeyboardEvent('keydown', {
-        key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true
-      }));
-      return true;
-    }
-    return false;
-  }
-
-  // ========= RESULT INJECTION v3.0 =========
-  // CRITICAL FIX: Results are ALWAYS injected back into chat
-  // This is the core of the feedback loop - AI must always see tool results
-  function injectResultIntoChat(resultText) {
-    var input = findChatInput();
-    if (!input) return false;
-    var msg = '[RESULT]\n' + resultText + '\n[/RESULT]';
-    insertTextIntoChat(input, msg);
-    setTimeout(function() {
-      clickSendButton();
-      showNotification('Result injected into chat');
-      if (sessionActive) sessionActionCount++;
-      updateSessionButton();
-    }, 500);
-    return true;
-  }
-
-  // Queue results and send them batched after all pending actions complete
-  function queueResult(text) {
-    actionResults.push(text);
-  }
-
-  // v3.0 FIX: REMOVED the autoLoopEnabled gate
-  // Results are ALWAYS flushed back to the AI so it can see what happened
-  function flushResults() {
-    if (actionResults.length === 0) return;
-    var combined = actionResults.join('\n---\n');
-    actionResults = [];
-    // ALWAYS inject results - this is the feedback loop!
-    setTimeout(function() {
-      injectResultIntoChat(combined);
-      waitingForResponse = true;
-    }, 1000);
-  }
-
-  // ========= SESSION MANAGEMENT v3.0 =========
-  function startSession() {
-    showNotification('Starting session...');
-    sessionActive = true;
-    sessionActionCount = 0;
-    sessionStartTime = Date.now();
-    updateSessionButton();
-
-    // Ask background to build the session prompt from Doc + Sheet memory
-    chrome.runtime.sendMessage({ action: 'startSession' }, function(resp) {
-      if (resp && resp.success && resp.prompt) {
-        currentSessionId = resp.sessionId;
-        showNotification('Session ' + resp.sessionId + ' started!');
-
-        // Inject the session prompt into chat and auto-send
-        var input = findChatInput();
-        if (input) {
-          insertTextIntoChat(input, resp.prompt);
-          setTimeout(function() {
-            var sent = clickSendButton();
-            if (sent) {
-              showNotification('Session prompt sent! Agent is working...');
-              waitingForResponse = true;
-              // Also enable auto-loop so the agent keeps going
-              autoLoopEnabled = true;
-              updateLoopButton();
-            } else {
-              showNotification('Could not auto-send prompt');
-            }
-          }, 1000);
-        }
+    // Check connection
+    chrome.runtime.sendMessage({ type: 'getState' }, function(resp) {
+      if (resp && resp.connected) {
+        isConnected = true;
+        updateUI('connected', 'AgentOS Ready');
       } else {
-        showNotification('Session start failed: ' + (resp ? resp.error : 'unknown'));
-        sessionActive = false;
-        updateSessionButton();
+        updateUI('disconnected', 'Not Connected');
       }
     });
+  }
+
+  function updateUI(state, text) {
+    var dot = document.getElementById('agentos-dot');
+    var status = document.getElementById('agentos-status');
+    if (!dot || !status) return;
+    status.textContent = text;
+    if (state === 'connected') { dot.style.background = '#22c55e'; }
+    else if (state === 'working') { dot.style.background = '#f59e0b'; dot.style.animation = 'pulse 1s infinite'; }
+    else if (state === 'error') { dot.style.background = '#ef4444'; }
+    else { dot.style.background = '#666'; }
+  }
+
+  function updateStats(loops, tags) {
+    var stats = document.getElementById('agentos-stats');
+    if (stats) stats.textContent = 'Loops: ' + loops + ' | Tags: ' + tags;
+  }
+
+  // ═══════════════════════════════════════════
+  // SESSION MANAGEMENT
+  // ═══════════════════════════════════════════
+  function toggleSession() {
+    if (sessionActive) {
+      endSession();
+    } else {
+      startSession();
+    }
+  }
+
+  function startSession() {
+    currentSessionId = 'S-' + Date.now();
+    sessionActive = true;
+    sessionBtn.textContent = '\u23F9 End Session';
+    sessionBtn.style.borderColor = '#ef444455';
+    sessionBtn.style.color = '#ef4444';
+    chrome.runtime.sendMessage({ type: 'startSession', sessionId: currentSessionId });
+    updateUI('working', 'Session Active');
+
+    // Inject session start prompt
+    injectMessage('[SESSION START] ID: ' + currentSessionId + ' | Read your SOUL doc and current tasks. Begin autonomous work. Use command tags to take actions.');
   }
 
   function endSession() {
-    if (!sessionActive) return;
-    showNotification('Ending session...');
-
-    // Stop auto-loop
-    autoLoopEnabled = false;
-    if (loopTimer) clearTimeout(loopTimer);
-    loopTimer = null;
-    waitingForResponse = false;
-    updateLoopButton();
-
-    // Tell background to write session summary to Doc + Sheet
-    chrome.runtime.sendMessage({
-      action: 'endSession',
-      sessionId: currentSessionId,
-      actionCount: sessionActionCount,
-      duration: Math.round((Date.now() - (sessionStartTime || Date.now())) / 1000)
-    }, function(resp) {
-      if (resp && resp.success) {
-        showNotification('Session ended. Summary saved!');
-      } else {
-        showNotification('Session end: ' + (resp ? resp.error : 'could not save summary'));
-      }
-    });
-
     sessionActive = false;
+    sessionBtn.textContent = '\u26A1 Start Session';
+    sessionBtn.style.borderColor = '#22c55e55';
+    sessionBtn.style.color = '#22c55e';
+    if (autoLoopEnabled) toggleLoop();
+    chrome.runtime.sendMessage({ type: 'endSession', sessionId: currentSessionId });
+    updateUI('connected', 'Session Ended');
     currentSessionId = null;
-    sessionActionCount = 0;
-    sessionStartTime = null;
-    updateSessionButton();
-}
+  }
 
-  // ========= READ DOC AND PASTE =========
-  function doReadAndPaste(autoSend) {
-    if (readDocBtn) {
-      readDocBtn.textContent = 'Reading...';
-      readDocBtn.disabled = true;
+  // ═══════════════════════════════════════════
+  // AUTO-LOOP ENGINE
+  // ═══════════════════════════════════════════
+  function toggleLoop() {
+    autoLoopEnabled = !autoLoopEnabled;
+    if (autoLoopEnabled) {
+      loopBtn.textContent = '\u23F8 Pause Loop';
+      loopBtn.style.background = '#00d4ff22';
+      runLoop();
+    } else {
+      loopBtn.textContent = '\u25B6 Start Loop';
+      loopBtn.style.background = 'transparent';
+      if (loopTimer) clearTimeout(loopTimer);
     }
-    chrome.runtime.sendMessage({ action: 'readDoc' }, function(resp) {
-      if (readDocBtn) {
-        readDocBtn.textContent = 'Read Doc';
-        readDocBtn.disabled = false;
-      }
-      if (resp && resp.success && resp.text) {
-        var input = findChatInput();
-        if (input) {
-          insertTextIntoChat(input, resp.text);
-          showNotification('Doc pasted into chat!');
-          if (autoSend) {
-            setTimeout(function() {
-              var sent = clickSendButton();
-              if (sent) {
-                showNotification('Auto-sent! Waiting...');
-                waitingForResponse = true;
-              } else {
-                showNotification('Could not auto-send');
-                waitingForResponse = false;
-              }
-            }, 1000);
-          }
-        } else {
-          showNotification('Could not find chat input');
-        }
-      } else {
-        showNotification(resp ? resp.error : 'Failed to read doc');
-        if (autoLoopEnabled) {
-          autoLoopEnabled = false;
-          updateLoopButton();
-        }
+  }
+
+  function runLoop() {
+    if (!autoLoopEnabled || !sessionActive) return;
+    loopCount++;
+    updateStats(loopCount, Object.keys(processedTasks).length);
+    scanAllNodes();
+    loopTimer = setTimeout(runLoop, 3000);
+  }
+
+  // ═══════════════════════════════════════════
+  // TAG SCANNING ENGINE
+  // ═══════════════════════════════════════════
+  function scanAllNodes() {
+    var messages = document.querySelectorAll(
+      '[class*="message"], [class*="response"], [class*="answer"], ' +
+      '[class*="markdown"], [class*="prose"], [class*="assistant"], ' +
+      '[data-message-author-role="assistant"], [class*="bot"], [class*="reply"]'
+    );
+    messages.forEach(function(node) {
+      if (!processedNodes.has(node)) {
+        processedNodes.add(node);
+        scanNode(node);
       }
     });
   }
 
-  // ========= AUTO-LOOP ENGINE =========
-  function scheduleNextLoop() {
-    if (!autoLoopEnabled) return;
-    if (loopCount >= MAX_LOOPS) {
-      autoLoopEnabled = false;
-      updateLoopButton();
-      showNotification('Auto-loop max reached. Stopped.');
+  function scanNode(node) {
+    var text = node.textContent || '';
+    if (!text.includes('[')) return;
+
+    // ── MEMORY TAGS ──
+    handleTag(text, /\[SAVE_NOTE:\s*(.+?)\]/g, function(m) {
+      send('saveNote', { note: m[1] });
+    });
+    handleTag(text, /\[SHEET_WRITE:\s*(.+?)\|(.+?)\|(.+?)\]/g, function(m) {
+      send('sheetWrite', { sheet: m[1].trim(), range: m[2].trim(), data: m[3].trim() });
+    });
+    handleTag(text, /\[SHEET_READ:\s*(.+?)\|(.+?)\]/g, function(m) {
+      send('sheetRead', { sheet: m[1].trim(), range: m[2].trim() });
+    });
+    handleTag(text, /\[SHEET_APPEND:\s*(.+?)\|(.+?)\]/g, function(m) {
+      send('sheetAppend', { sheet: m[1].trim(), data: m[2].trim() });
+    });
+    handleTag(text, /\[TASK_DONE:\s*(.+?)\]/g, function(m) {
+      send('taskDone', { task: m[1] });
+    });
+    handleTag(text, /\[ADD_TASK:\s*(.+?)\]/g, function(m) {
+      send('addTask', { task: m[1] });
+    });
+    handleTag(text, /\[SKIP:\s*(.+?)\]/g, function(m) {
+      send('skip', { reason: m[1] });
+    });
+
+    // ── BROWSER TAGS ──
+    handleTag(text, /\[TAB_OPEN:\s*(.+?)\]/g, function(m) {
+      send('tabOpen', { url: m[1].trim() });
+    });
+    handleTag(text, /\[TAB_SCRAPE:\s*(.+?)\]/g, function(m) {
+      send('tabScrape', { url: m[1].trim() });
+    });
+    handleTag(text, /\[TAB_CLICK:\s*(.+?)\]/g, function(m) {
+      send('tabClick', { selector: m[1].trim() });
+    });
+    handleTag(text, /\[TAB_TYPE:\s*(.+?)\|(.+?)\]/g, function(m) {
+      send('tabType', { selector: m[1].trim(), text: m[2].trim() });
+    });
+    handleTag(text, /\[TAB_READ\]/g, function(m) {
+      send('tabRead', {});
+    });
+    handleTag(text, /\[TAB_LIST\]/g, function(m) {
+      send('tabList', {});
+    });
+    handleTag(text, /\[TAB_CLOSE:\s*(.+?)\]/g, function(m) {
+      send('tabClose', { tabId: m[1].trim() });
+    });
+    handleTag(text, /\[TAB_WAIT:\s*(\d+)\]/g, function(m) {
+      send('tabWait', { ms: parseInt(m[1]) });
+    });
+    handleTag(text, /\[BROWSE:\s*(.+?)\]/g, function(m) {
+      send('browse', { query: m[1] });
+    });
+
+    // ── SKILL TAGS ──
+    handleTag(text, /\[SKILL_CREATE:\s*(.+?)\|(.+?)\]/g, function(m) {
+      send('skillCreate', { name: m[1].trim(), content: m[2].trim() });
+    });
+    handleTag(text, /\[SKILL_SEARCH:\s*(.+?)\]/g, function(m) {
+      send('skillSearch', { query: m[1].trim() });
+    });
+    handleTag(text, /\[SKILL_RECALL:\s*(.+?)\]/g, function(m) {
+      send('skillRecall', { name: m[1].trim() });
+    });
+    handleTag(text, /\[SKILL_IMPROVE:\s*(.+?)\|(.+?)\]/g, function(m) {
+      send('skillImprove', { name: m[1].trim(), improvement: m[2].trim() });
+    });
+    handleTag(text, /\[SKILL_LIST\]/g, function(m) {
+      send('skillList', {});
+    });
+
+    // ── SCHEDULER TAGS ──
+    handleTag(text, /\[SCHEDULE_TASK:\s*(.+?)\|(.+?)\|(.+?)\]/g, function(m) {
+      send('scheduleTask', { name: m[1].trim(), when: m[2].trim(), action: m[3].trim() });
+    });
+    handleTag(text, /\[SCHEDULE_LIST\]/g, function(m) {
+      send('scheduleList', {});
+    });
+    handleTag(text, /\[SCHEDULE_CANCEL:\s*(.+?)\]/g, function(m) {
+      send('scheduleCancel', { name: m[1].trim() });
+    });
+
+    // ── MULTI-AGENT TAGS ──
+    handleTag(text, /\[SPAWN_AGENT:\s*(.+?)\|(.+?)\]/g, function(m) {
+      send('spawnAgent', { name: m[1].trim(), role: m[2].trim() });
+    });
+    handleTag(text, /\[AGENT_MSG:\s*(.+?)\|(.+?)\]/g, function(m) {
+      send('agentMsg', { agent: m[1].trim(), message: m[2].trim() });
+    });
+    handleTag(text, /\[ASSIGN_TASK:\s*(.+?)\|(.+?)\]/g, function(m) {
+      send('assignTask', { agent: m[1].trim(), task: m[2].trim() });
+    });
+    handleTag(text, /\[AGENT_LIST\]/g, function(m) {
+      send('agentList', {});
+    });
+    handleTag(text, /\[AGENT_DONE:\s*(.+?)\]/g, function(m) {
+      send('agentDone', { agent: m[1].trim() });
+    });
+
+    // ── EMAIL GATEWAY TAGS ──
+    handleTag(text, /\[EMAIL_NOTIFY:\s*(.+?)\|(.+?)\|(.+?)\]/g, function(m) {
+      send('emailNotify', { to: m[1].trim(), subject: m[2].trim(), body: m[3].trim() });
+    });
+    handleTag(text, /\[EMAIL_REPORT:\s*(.+?)\|(.+?)\]/g, function(m) {
+      send('emailReport', { subject: m[1].trim(), body: m[2].trim() });
+    });
+    handleTag(text, /\[EMAIL_CHECK\]/g, function(m) {
+      send('emailCheck', {});
+    });
+
+    // ── SESSION TAG ──
+    handleTag(text, /\[SESSION_COMPLETE:\s*(.+?)\]/g, function(m) {
+      send('sessionComplete', { summary: m[1] });
+      endSession();
+    });
+  }
+
+  // ═══════════════════════════════════════════
+  // HELPER FUNCTIONS
+  // ═══════════════════════════════════════════
+  function handleTag(text, regex, callback) {
+    var match;
+    while ((match = regex.exec(text)) !== null) {
+      var tagKey = match[0];
+      var now = Date.now();
+      if (processedTasks[tagKey] && (now - processedTasks[tagKey]) < DEDUP_WINDOW) continue;
+      processedTasks[tagKey] = now;
+      try {
+        callback(match);
+      } catch (e) {
+        console.error('[AgentOS] Tag handler error:', e);
+      }
+    }
+  }
+
+  function send(type, data) {
+    updateUI('working', 'Executing: ' + type);
+    chrome.runtime.sendMessage({ type: type, data: data }, function(response) {
+      if (chrome.runtime.lastError) {
+        console.error('[AgentOS] Send error:', chrome.runtime.lastError);
+        injectResult(type, { error: chrome.runtime.lastError.message });
+        updateUI('error', 'Error: ' + type);
+        return;
+      }
+      if (response) {
+        injectResult(type, response);
+      }
+      updateUI(sessionActive ? 'working' : 'connected', sessionActive ? 'Session Active' : 'AgentOS Ready');
+    });
+  }
+
+  // ═══════════════════════════════════════════
+  // RESULT INJECTION
+  // ═══════════════════════════════════════════
+  function injectResult(type, data) {
+    var resultText = '[RESULT:' + type + '] ';
+    if (data.error) {
+      resultText += 'ERROR: ' + data.error;
+    } else if (data.success !== undefined) {
+      resultText += data.success ? 'OK' : 'FAILED';
+      if (data.data) resultText += ' | ' + (typeof data.data === 'string' ? data.data : JSON.stringify(data.data).substring(0, 500));
+      if (data.message) resultText += ' | ' + data.message;
+    } else {
+      resultText += JSON.stringify(data).substring(0, 500);
+    }
+    injectMessage(resultText);
+  }
+
+  function injectMessage(text) {
+    // Find the chat input and inject
+    var selectors = [
+      'textarea[placeholder*="message"]',
+      'textarea[placeholder*="Message"]',
+      'textarea[placeholder*="Send"]',
+      'textarea[placeholder*="Ask"]',
+      'textarea[placeholder*="Type"]',
+      '#prompt-textarea',
+      'div[contenteditable="true"][role="textbox"]',
+      'div[contenteditable="true"][class*="input"]',
+      'textarea[data-id]',
+      'textarea'
+    ];
+
+    var input = null;
+    for (var i = 0; i < selectors.length; i++) {
+      input = document.querySelector(selectors[i]);
+      if (input) break;
+    }
+
+    if (!input) {
+      console.warn('[AgentOS] No chat input found');
+      showFloatingResult(text);
       return;
     }
-    showNotification('Next loop in ' + (LOOP_DELAY / 1000) + 's...');
-    loopTimer = setTimeout(function() {
-      loopCount++;
-      updateLoopButton();
-      doReadAndPaste(true);
-    }, LOOP_DELAY);
-  }
 
-  function onAllTasksDone() {
-    showNotification('ALL TASKS COMPLETE!');
-    // v3.0: End session when all tasks are done
-    if (sessionActive) {
-      endSession();
+    // Handle textarea
+    if (input.tagName === 'TEXTAREA') {
+      var nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set;
+      nativeSetter.call(input, text);
+      input.dispatchEvent(new Event('input', { bubbles: true }));
     }
-    autoLoopEnabled = false;
-    if (loopTimer) clearTimeout(loopTimer);
-    loopTimer = null;
-    waitingForResponse = false;
-    updateLoopButton();
+    // Handle contenteditable
+    else if (input.contentEditable === 'true') {
+      input.focus();
+      input.textContent = text;
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+
+    // Auto-send if loop is active
+    if (autoLoopEnabled) {
+      setTimeout(function() {
+        autoSend();
+      }, 500);
+    }
   }
 
-  function checkAndSchedule() {
-    if (pendingToolActions === 0) {
-      // Flush any queued results first - this is the feedback loop
-      if (actionResults.length > 0) {
-        flushResults();
-      } else if (autoLoopEnabled) {
-        scheduleNextLoop();
+  function autoSend() {
+    // Try clicking send button
+    var sendSelectors = [
+      'button[data-testid="send-button"]',
+      'button[aria-label="Send"]',
+      'button[aria-label="Send message"]',
+      'button[class*="send"]',
+      'button[type="submit"]',
+      'form button:last-of-type'
+    ];
+
+    for (var i = 0; i < sendSelectors.length; i++) {
+      var btn = document.querySelector(sendSelectors[i]);
+      if (btn && !btn.disabled) {
+        btn.click();
+        return;
       }
     }
+
+    // Fallback: try Enter key
+    var input = document.querySelector('textarea') || document.querySelector('div[contenteditable="true"]');
+    if (input) {
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', keyCode: 13, bubbles: true }));
+    }
   }
 
-  // ========= ASSISTANT MESSAGE CHECK =========
-  function isInsideAssistantMessage(node) {
-    var el = node;
-    while (el && el !== document.body) {
-      if (el.getAttribute && el.getAttribute('data-message-author-role') === 'assistant') return true;
-      if (el.classList && el.classList.contains('font-claude-message')) return true;
-      if (el.getAttribute && el.getAttribute('data-content-type') === 'response') return true;
-      if (el.classList && (
-        el.classList.contains('response-content') ||
-        el.classList.contains('bot-message') ||
-        el.classList.contains('assistant-message')
-      )) return true;
-      el = el.parentElement;
-    }
-    return false;
+  function showFloatingResult(text) {
+    var toast = document.createElement('div');
+    toast.style.cssText = 'position:fixed;top:20px;right:20px;background:#1a1a2e;color:#00d4ff;padding:12px 20px;border-radius:12px;font-size:12px;z-index:99999;max-width:400px;word-wrap:break-word;border:1px solid #00d4ff33;box-shadow:0 4px 20px rgba(0,0,0,0.4);';
+    toast.textContent = text.substring(0, 300);
+    document.body.appendChild(toast);
+    setTimeout(function() {
+      toast.style.opacity = '0';
+      toast.style.transition = 'opacity 0.5s';
+      setTimeout(function() { toast.remove(); }, 500);
+    }, 5000);
   }
 
-  // ========= COMMAND SCANNER =========
-  function scanNode(node) {
-    if (processedNodes.has(node)) return;
-    if (!isInsideAssistantMessage(node)) return;
-    var text = node.textContent || '';
-    if (text.length < 10) return;
-
-    // Skip template/instruction text
-    if (text.indexOf('task text from the TODO') !== -1) return;
-    if (text.indexOf('new task description') !== -1) return;
-    if (text.indexOf('task text | reason') !== -1) return;
-    if (text.indexOf('url to browse') !== -1) return;
-    if (text.indexOf('exact task text from TODO') !== -1) return;
-    if (text.indexOf('important finding here') !== -1) return;
-    if (text.indexOf('css selector') !== -1 && text.indexOf('[TAB_') !== -1) return;
-
-    var match;
-
-    // ===== SESSION_COMPLETE v3.0 =====
-    // AI outputs this when it decides the session goal is achieved
-    var sessionCompleteRe = /\[SESSION_COMPLETE(?::\s*(.+?))?\]/g;
-    while ((match = sessionCompleteRe.exec(text)) !== null) {
-      processedNodes.add(node);
-      var summary = match[1] ? match[1].trim() : 'Session completed by AI';
-      if (isDuplicate('sessioncomplete', summary)) continue;
-      showNotification('AI ended session: ' + summary.substring(0, 50));
-      if (sessionActive) endSession();
-    }
-
-    // ===== TASK_DONE =====
-    var taskDoneRe = /\[TASK_DONE:\s*(.+?)\]/g;
-    while ((match = taskDoneRe.exec(text)) !== null) {
-      processedNodes.add(node);
-      var taskText = match[1].trim();
-      if (isDuplicate('done', taskText)) continue;
-      pendingToolActions++;
-      showNotification('Done: ' + taskText.substring(0, 40) + '...');
-      (function(tt) {
-        chrome.runtime.sendMessage({ action: 'taskDone', taskText: tt }, function(resp) {
-          pendingToolActions--;
-          if (resp && resp.success) {
-            showNotification('Moved to DONE: ' + tt.substring(0, 30));
-            queueResult('TASK_DONE ' + tt + ': SUCCESS. Remaining TODO: ' + (resp.counts ? resp.counts.todo : '?'));
-            if (resp.counts && resp.counts.todo === 0) onAllTasksDone();
-            else checkAndSchedule();
-          } else {
-            queueResult('TASK_DONE ' + tt + ': ERROR ' + (resp ? resp.error : 'unknown'));
-            checkAndSchedule();
-          }
-        });
-      })(taskText);
-    }
-
-    // ===== ADD_TASK =====
-    var addTaskRe = /\[ADD_TASK:\s*(.+?)\]/g;
-    while ((match = addTaskRe.exec(text)) !== null) {
-      processedNodes.add(node);
-      var newTask = match[1].trim();
-      if (isDuplicate('add', newTask)) continue;
-      showNotification('Adding task: ' + newTask.substring(0, 40));
-      chrome.runtime.sendMessage({ action: 'addTask', taskText: newTask }, function(resp) {
-        if (resp && resp.success) {
-          queueResult('ADD_TASK ' + newTask + ': SUCCESS');
-        }
-      });
-    }
-
-    // ===== SKIP =====
-    var skipRe = /\[SKIP:\s*(.+?)\]/g;
-    while ((match = skipRe.exec(text)) !== null) {
-      processedNodes.add(node);
-      var skipInfo = match[1].trim();
-      var parts = skipInfo.split('|');
-      var skipTask = parts[0].trim();
-      var skipReason = parts.length > 1 ? parts[1].trim() : 'no reason';
-      if (isDuplicate('skip', skipTask)) continue;
-      pendingToolActions++;
-      showNotification('Skipped: ' + skipTask.substring(0, 40));
-      (function(st, sr) {
-        chrome.runtime.sendMessage({ action: 'taskSkip', taskText: st, reason: sr }, function(resp) {
-          pendingToolActions--;
-          if (resp && resp.success) {
-            queueResult('SKIP ' + st + ': SUCCESS');
-            if (resp.counts && resp.counts.todo === 0) onAllTasksDone();
-            else checkAndSchedule();
-          } else {
-            checkAndSchedule();
-          }
-        });
-      })(skipTask, skipReason);
-    }
-
-    // ===== BROWSE =====
-    var browseRe = /\[BROWSE:\s*(.+?)\]/g;
-    while ((match = browseRe.exec(text)) !== null) {
-      processedNodes.add(node);
-      var url = match[1].trim();
-      if (isDuplicate('browse', url)) continue;
-      pendingToolActions++;
-      showNotification('Browsing: ' + url.substring(0, 40) + '...');
-      (function(u) {
-        chrome.runtime.sendMessage({ action: 'browse', url: u }, function(resp) {
-          pendingToolActions--;
-          if (resp && resp.success) {
-            showNotification('Browsed: ' + u.substring(0, 30));
-            queueResult('BROWSE ' + u + ': ' + (resp.text || '').substring(0, 1500));
-          } else {
-            queueResult('BROWSE ' + u + ': ERROR ' + (resp ? resp.error : 'unknown'));
-          }
-          checkAndSchedule();
-        });
-      })(url);
-                        }
-
-    // ===== SHEET_WRITE =====
-    var sheetWriteRe = /\[SHEET_WRITE:\s*(.+?)\]/g;
-    while ((match = sheetWriteRe.exec(text)) !== null) {
-      processedNodes.add(node);
-      var swData = match[1].trim();
-      if (isDuplicate('sheetwrite', swData)) continue;
-      var swParts = swData.split('|').map(function(s) { return s.trim(); });
-      if (swParts.length < 2) continue;
-      var swRange = swParts[0];
-      var swValues = [];
-      for (var si = 1; si < swParts.length; si++) {
-        swValues.push(swParts[si].split(',').map(function(s) { return s.trim(); }));
-      }
-      pendingToolActions++;
-      showNotification('Writing to sheet: ' + swRange);
-      (function(r, v) {
-        chrome.runtime.sendMessage({ action: 'sheetWrite', range: r, values: v }, function(resp) {
-          pendingToolActions--;
-          if (resp && resp.success) {
-            showNotification('Sheet updated: ' + r);
-            queueResult('SHEET_WRITE ' + r + ': SUCCESS');
-          } else {
-            showNotification('Sheet write failed');
-            queueResult('SHEET_WRITE ' + r + ': ERROR ' + (resp ? resp.error : 'unknown'));
-          }
-          checkAndSchedule();
-        });
-      })(swRange, swValues);
-    }
-
-    // ===== SHEET_READ =====
-    var sheetReadRe = /\[SHEET_READ:\s*(.+?)\]/g;
-    while ((match = sheetReadRe.exec(text)) !== null) {
-      processedNodes.add(node);
-      var srRange = match[1].trim();
-      if (isDuplicate('sheetread', srRange)) continue;
-      pendingToolActions++;
-      showNotification('Reading sheet: ' + srRange);
-      (function(r) {
-        chrome.runtime.sendMessage({ action: 'sheetRead', range: r }, function(resp) {
-          pendingToolActions--;
-          if (resp && resp.success) {
-            showNotification('Sheet read: ' + resp.values.length + ' rows');
-            queueResult('SHEET_READ ' + r + ': ' + JSON.stringify(resp.values).substring(0, 1000));
-          } else {
-            queueResult('SHEET_READ ' + r + ': ERROR ' + (resp ? resp.error : 'unknown'));
-          }
-          checkAndSchedule();
-        });
-      })(srRange);
-    }
-
-    // ===== SHEET_APPEND =====
-    var sheetAppendRe = /\[SHEET_APPEND:\s*(.+?)\]/g;
-    while ((match = sheetAppendRe.exec(text)) !== null) {
-      processedNodes.add(node);
-      var saData = match[1].trim();
-      if (isDuplicate('sheetappend', saData)) continue;
-      var saParts = saData.split('|').map(function(s) { return s.trim(); });
-      if (saParts.length < 2) continue;
-      var saRange = saParts[0];
-      var saValues = [];
-      for (var ai = 1; ai < saParts.length; ai++) {
-        saValues.push(saParts[ai].split(',').map(function(s) { return s.trim(); }));
-      }
-      pendingToolActions++;
-      showNotification('Appending to sheet: ' + saRange);
-      (function(r, v) {
-        chrome.runtime.sendMessage({ action: 'sheetAppend', range: r, values: v }, function(resp) {
-          pendingToolActions--;
-          if (resp && resp.success) {
-            showNotification('Sheet appended!');
-            queueResult('SHEET_APPEND ' + r + ': SUCCESS');
-          } else {
-            queueResult('SHEET_APPEND ' + r + ': ERROR ' + (resp ? resp.error : 'unknown'));
-          }
-          checkAndSchedule();
-        });
-      })(saRange, saValues);
-    }
-
-    // ===== SAVE_NOTE =====
-    var saveNoteRe = /\[SAVE_NOTE:\s*(.+?)\]/g;
-    while ((match = saveNoteRe.exec(text)) !== null) {
-      processedNodes.add(node);
-      var noteText = match[1].trim();
-      if (isDuplicate('note', noteText)) continue;
-      showNotification('Saving note...');
-      chrome.runtime.sendMessage({ action: 'saveNote', text: noteText }, function(resp) {
-        if (resp && resp.success) {
-          showNotification('Note saved to doc!');
-          queueResult('SAVE_NOTE: SUCCESS');
-        }
-      });
-           }
-
-    // =================================================
-    // BROWSER CONTROL TAGS v2.1 (preserved)
-    // =================================================
-
-    // ===== TAB_OPEN =====
-    var tabOpenRe = /\[TAB_OPEN:\s*(.+?)\]/g;
-    while ((match = tabOpenRe.exec(text)) !== null) {
-      processedNodes.add(node);
-      var openUrl = match[1].trim();
-      if (isDuplicate('tabopen', openUrl)) continue;
-      pendingToolActions++;
-      showNotification('Opening: ' + openUrl.substring(0, 40) + '...');
-      (function(u) {
-        chrome.runtime.sendMessage({ action: 'tabNavigate', url: u }, function(resp) {
-          pendingToolActions--;
-          if (resp && resp.success) {
-            showNotification('Opened tab ' + resp.tabId);
-            queueResult('TAB_OPEN ' + u + ': tabId=' + resp.tabId + ' title="' + (resp.title || '') + '"');
-          } else {
-            queueResult('TAB_OPEN ' + u + ': ERROR ' + (resp ? resp.error : 'unknown'));
-          }
-          checkAndSchedule();
-        });
-      })(openUrl);
-    }
-
-    // ===== TAB_SCRAPE =====
-    var tabScrapeRe = /\[TAB_SCRAPE:\s*(.+?)\]/g;
-    while ((match = tabScrapeRe.exec(text)) !== null) {
-      processedNodes.add(node);
-      var scrapeData = match[1].trim();
-      if (isDuplicate('tabscrape', scrapeData)) continue;
-      var scrapeParts = scrapeData.split('|').map(function(s) { return s.trim(); });
-      var scrapeTabId = parseInt(scrapeParts[0]) || null;
-      var scrapeSel = scrapeParts.length > 1 ? scrapeParts[1] : null;
-      pendingToolActions++;
-      showNotification('Scraping tab ' + (scrapeTabId || 'active') + '...');
-      (function(tid, sel) {
-        chrome.runtime.sendMessage({ action: 'tabScrape', tabId: tid, selector: sel }, function(resp) {
-          pendingToolActions--;
-          if (resp && resp.success) {
-            showNotification('Scraped ' + resp.text.length + ' chars');
-            queueResult('TAB_SCRAPE tab:' + resp.tabId + (sel ? ' sel:' + sel : '') + ':\n' + resp.text.substring(0, 2000));
-          } else {
-            queueResult('TAB_SCRAPE: ERROR ' + (resp ? resp.error : 'unknown'));
-          }
-          checkAndSchedule();
-        });
-      })(scrapeTabId, scrapeSel);
-    }
-
-    // ===== TAB_CLICK =====
-    var tabClickRe = /\[TAB_CLICK:\s*(.+?)\]/g;
-    while ((match = tabClickRe.exec(text)) !== null) {
-      processedNodes.add(node);
-      var clickData = match[1].trim();
-      if (isDuplicate('tabclick', clickData)) continue;
-      var clickParts = clickData.split('|').map(function(s) { return s.trim(); });
-      var clickTabId = parseInt(clickParts[0]) || null;
-      var clickSel = clickParts.length > 1 ? clickParts[1] : clickParts[0];
-      if (clickParts.length === 1) clickTabId = null;
-      pendingToolActions++;
-      showNotification('Clicking: ' + clickSel.substring(0, 30));
-      (function(tid, sel) {
-        chrome.runtime.sendMessage({ action: 'tabClick', tabId: tid, selector: sel }, function(resp) {
-          pendingToolActions--;
-          if (resp && resp.success) {
-            showNotification('Clicked: ' + (resp.tagName || sel));
-            queueResult('TAB_CLICK ' + sel + ': SUCCESS clicked ' + (resp.tagName || '') + ' "' + (resp.text || '').substring(0, 50) + '"');
-          } else {
-            queueResult('TAB_CLICK ' + sel + ': ERROR ' + (resp ? resp.error : 'unknown'));
-          }
-          checkAndSchedule();
-        });
-      })(clickTabId, clickSel);
-    }
-
-    // ===== TAB_TYPE =====
-    var tabTypeRe = /\[TAB_TYPE:\s*(.+?)\]/g;
-    while ((match = tabTypeRe.exec(text)) !== null) {
-      processedNodes.add(node);
-      var typeData = match[1].trim();
-      if (isDuplicate('tabtype', typeData)) continue;
-      var typeParts = typeData.split('|').map(function(s) { return s.trim(); });
-      var typeTabId, typeSel, typeText;
-      if (typeParts.length >= 3) {
-        typeTabId = parseInt(typeParts[0]) || null;
-        typeSel = typeParts[1];
-        typeText = typeParts.slice(2).join('|');
-      } else if (typeParts.length === 2) {
-        typeTabId = null;
-        typeSel = typeParts[0];
-        typeText = typeParts[1];
-      } else { continue; }
-      pendingToolActions++;
-      showNotification('Typing into: ' + typeSel.substring(0, 30));
-      (function(tid, sel, txt) {
-        chrome.runtime.sendMessage({ action: 'tabType', tabId: tid, selector: sel, text: txt }, function(resp) {
-          pendingToolActions--;
-          if (resp && resp.success) {
-            queueResult('TAB_TYPE ' + sel + ': SUCCESS typed "' + txt.substring(0, 50) + '"');
-          } else {
-            queueResult('TAB_TYPE ' + sel + ': ERROR ' + (resp ? resp.error : 'unknown'));
-          }
-          checkAndSchedule();
-        });
-      })(typeTabId, typeSel, typeText);
-    }
-
-    // ===== TAB_READ =====
-    var tabReadRe = /\[TAB_READ:\s*(.+?)\]/g;
-    while ((match = tabReadRe.exec(text)) !== null) {
-      processedNodes.add(node);
-      var readData = match[1].trim();
-      if (isDuplicate('tabread', readData)) continue;
-      var readParts = readData.split('|').map(function(s) { return s.trim(); });
-      var readTabId = parseInt(readParts[0]) || null;
-      var readSel = readParts.length > 1 ? readParts[1] : null;
-      pendingToolActions++;
-      showNotification('Reading elements on tab ' + (readTabId || 'active') + '...');
-      (function(tid, sel) {
-        chrome.runtime.sendMessage({ action: 'tabRead', tabId: tid, selector: sel }, function(resp) {
-          pendingToolActions--;
-          if (resp && resp.success) {
-            showNotification('Found ' + resp.count + ' elements');
-            queueResult('TAB_READ tab:' + (tid || 'active') + ' found ' + resp.count + ' elements:\n' + JSON.stringify(resp.items).substring(0, 2000));
-          } else {
-            queueResult('TAB_READ: ERROR ' + (resp ? resp.error : 'unknown'));
-          }
-          checkAndSchedule();
-        });
-      })(readTabId, readSel);
-    }
-
-    // ===== TAB_LIST =====
-    var tabListRe = /\[TAB_LIST\]/g;
-    while ((match = tabListRe.exec(text)) !== null) {
-      processedNodes.add(node);
-      if (isDuplicate('tablist', 'list')) continue;
-      pendingToolActions++;
-      showNotification('Listing tabs...');
-      chrome.runtime.sendMessage({ action: 'tabList' }, function(resp) {
-        pendingToolActions--;
-        if (resp && resp.success) {
-          showNotification('Found ' + resp.tabs.length + ' tabs');
-          var tabInfo = resp.tabs.map(function(t) {
-            return 'id:' + t.id + ' ' + (t.active ? '[ACTIVE] ' : '') + t.title + ' (' + t.url + ')';
-          }).join('\n');
-          queueResult('TAB_LIST:\n' + tabInfo);
-        } else {
-          queueResult('TAB_LIST: ERROR ' + (resp ? resp.error : 'unknown'));
-        }
-        checkAndSchedule();
-      });
-    }
-
-    // ===== TAB_CLOSE =====
-    var tabCloseRe = /\[TAB_CLOSE:\s*(.+?)\]/g;
-    while ((match = tabCloseRe.exec(text)) !== null) {
-      processedNodes.add(node);
-      var closeTabId = parseInt(match[1].trim());
-      if (isDuplicate('tabclose', '' + closeTabId)) continue;
-      if (!closeTabId) continue;
-      pendingToolActions++;
-      showNotification('Closing tab ' + closeTabId);
-      (function(tid) {
-        chrome.runtime.sendMessage({ action: 'tabClose', tabId: tid }, function(resp) {
-          pendingToolActions--;
-          if (resp && resp.success) {
-            queueResult('TAB_CLOSE ' + tid + ': SUCCESS');
-          } else {
-            queueResult('TAB_CLOSE ' + tid + ': ERROR ' + (resp ? resp.error : 'unknown'));
-          }
-          checkAndSchedule();
-        });
-      })(closeTabId);
-    }
-
-    // ===== TAB_WAIT =====
-    var tabWaitRe = /\[TAB_WAIT:\s*(.+?)\]/g;
-    while ((match = tabWaitRe.exec(text)) !== null) {
-      processedNodes.add(node);
-      var waitMs = parseInt(match[1].trim()) || 2000;
-      if (isDuplicate('tabwait', '' + waitMs)) continue;
-      pendingToolActions++;
-      showNotification('Waiting ' + waitMs + 'ms...');
-      (function(ms) {
-        chrome.runtime.sendMessage({ action: 'tabWait', ms: ms }, function(resp) {
-          pendingToolActions--;
-          showNotification('Wait complete');
-          queueResult('TAB_WAIT: waited ' + ms + 'ms');
-          checkAndSchedule();
-        });
-      })(waitMs);
-    }
-  } // end scanNode
-
-  // ========= MUTATION OBSERVER =========
+  // ═══════════════════════════════════════════
+  // MUTATION OBSERVER - Real-time tag detection
+  // ═══════════════════════════════════════════
   var observer = new MutationObserver(function(mutations) {
-    if (!isConnected) return;
-    for (var i = 0; i < mutations.length; i++) {
-      var mutation = mutations[i];
-      for (var j = 0; j < mutation.addedNodes.length; j++) {
-        var node = mutation.addedNodes[j];
+    if (!sessionActive) return;
+    mutations.forEach(function(mutation) {
+      mutation.addedNodes.forEach(function(node) {
         if (node.nodeType === 1) {
-          scanNode(node);
-          var children = node.querySelectorAll('p, span, div, li, code, pre');
-          for (var k = 0; k < children.length; k++) scanNode(children[k]);
+          // Check if this is a message container
+          var messages = node.querySelectorAll ? node.querySelectorAll(
+            '[class*="message"], [class*="response"], [class*="markdown"], [class*="prose"]'
+          ) : [];
+          messages.forEach(function(msg) {
+            if (!processedNodes.has(msg)) {
+              processedNodes.add(msg);
+              scanNode(msg);
+            }
+          });
+          // Also check the node itself
+          if (!processedNodes.has(node) && node.textContent && node.textContent.includes('[')) {
+            processedNodes.add(node);
+            scanNode(node);
+          }
         }
-      }
-    }
-  });
-
-  // ========= MESSAGE HANDLER v3.0 =========
-  chrome.runtime.onMessage.addListener(function(msg) {
-    if (msg.action === 'connected') {
-      updateBadgeStatus(true);
-      showNotification('AgentOS connected!');
-    } else if (msg.action === 'disconnected') {
-      updateBadgeStatus(false);
-      showNotification('AgentOS disconnected');
-    } else if (msg.action === 'pasteText') {
-      var input = findChatInput();
-      if (input) {
-        insertTextIntoChat(input, msg.text);
-        showNotification('Doc pasted!');
-      }
-    } else if (msg.action === 'startSessionFromPopup') {
-      // Popup can trigger session start
-      startSession();
-    } else if (msg.action === 'endSessionFromPopup') {
-      // Popup can trigger session end
-      endSession();
-    } else if (msg.action === 'injectPrompt') {
-      // Direct prompt injection from background/popup
-      var input = findChatInput();
-      if (input) {
-        insertTextIntoChat(input, msg.text);
-        if (msg.autoSend) {
-          setTimeout(function() {
-            clickSendButton();
-            showNotification('Prompt sent!');
-          }, 500);
-        }
-      }
-    }
-  });
-
-  // ========= INIT =========
-  function init() {
-    createBadge();
-    chrome.runtime.sendMessage({ action: 'getStatus' }, function(resp) {
-      if (resp && resp.loggedIn && resp.docId) updateBadgeStatus(true);
-      else updateBadgeStatus(false);
+      });
     });
-    observer.observe(document.body, { childList: true, subtree: true });
-    console.log('[AgentOS v3.0.0] Content script loaded - Session Loop Engine active');
+  });
+
+  observer.observe(document.body, { childList: true, subtree: true });
+
+  // ═══════════════════════════════════════════
+  // MESSAGE LISTENER - Commands from popup/background
+  // ═══════════════════════════════════════════
+  chrome.runtime.onMessage.addListener(function(msg, sender, sendResponse) {
+    if (msg.type === 'startSession') {
+      startSession();
+      sendResponse({ ok: true });
+    } else if (msg.type === 'endSession') {
+      endSession();
+      sendResponse({ ok: true });
+    } else if (msg.type === 'toggleLoop') {
+      toggleLoop();
+      sendResponse({ ok: true });
+    } else if (msg.type === 'injectPrompt') {
+      injectMessage(msg.text);
+      sendResponse({ ok: true });
+    } else if (msg.type === 'getContentState') {
+      sendResponse({
+        sessionActive: sessionActive,
+        autoLoop: autoLoopEnabled,
+        loopCount: loopCount,
+        sessionId: currentSessionId
+      });
+    }
+    return true;
+  });
+
+  // ═══════════════════════════════════════════
+  // INITIALIZATION
+  // ═══════════════════════════════════════════
+  function init() {
+    injectUI();
+    console.log('[AgentOS] Content script v4.0 loaded - Full autonomous agent loop ready');
+    console.log('[AgentOS] Tags: Memory(7) + Browser(10) + Skills(5) + Scheduler(3) + Multi-Agent(5) + Email(3) + Session(1) = 34 total');
   }
 
-  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
-  else init();
+  // Wait for page to be ready
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else {
+    init();
+  }
 
 })();
