@@ -92,7 +92,7 @@ document.addEventListener('DOMContentLoaded', () => {
         // Tell content script to start its session (it handles buildContext itself)
         chrome.tabs.query({ active: true, currentWindow: true }, tabs => {
           if (tabs[0]) {
-            chrome.tabs.sendMessage(tabs[0].id, { type: 'startSession' });
+            chrome.tabs.sendMessage(tabs[0].id, { type: 'startSession', sessionId: response.sessionId });
           }
         });
       } else {
@@ -174,3 +174,4 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 });
+
