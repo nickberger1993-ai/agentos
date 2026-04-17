@@ -254,7 +254,7 @@ function putSheet(token, sheetId, range, values) {
 // BUILD CONTEXT (v4.3 - launchWebAuthFlow + auto-provision)
 // ====================================
 function buildContext() {
-  return getToken(true).then(function(token) {
+  return getToken(false).then(function(token) {
     var provisionPromise = Promise.resolve();
     if (!state.docId || !state.sheetId) {
       provisionPromise = autoProvision();
@@ -349,7 +349,7 @@ function appendSheet(token, sheetId, range, values) {
 }
 
 function logSession(action, data) {
-  return getToken(true).then(function(token) {
+  return getToken(false).then(function(token) {
     var row = [state.currentSessionId || 'none', new Date().toISOString(), '', action, '', data || ''];
     return appendSheet(token, state.sheetId, 'Sessions!A:F', [row]);
   }).catch(function(e) { console.warn('[AgentOS] logSession error:', e.message); });
@@ -528,7 +528,7 @@ function spawnSubAgent(token, name, soul) {
 }
 
 function messageAgent(name, msg) {
-  return getToken(true).then(function(token) {
+  return getToken(false).then(function(token) {
     return findAgentDoc(name).then(function(id) {
       return gfetch('https://docs.googleapis.com/v1/documents/' + id, {
         headers: { 'Authorization': 'Bearer ' + token }
@@ -547,7 +547,7 @@ function messageAgent(name, msg) {
 function assignTaskToAgent(name, task) { return messageAgent(name, '[TASK] ' + task); }
 
 function findAgentDoc(name) {
-  return getToken(true).then(function(token) {
+  return getToken(false).then(function(token) {
     return gfetch('https://www.googleapis.com/drive/v3/files?q=' + encodeURIComponent("name='AgentOS-Agent: " + name + "'") + '&fields=files(id,name)', {
       headers: { 'Authorization': 'Bearer ' + token }
     }).then(function(d) {
@@ -558,7 +558,7 @@ function findAgentDoc(name) {
 }
 
 function listAgents() {
-  return getToken(true).then(function(token) {
+  return getToken(false).then(function(token) {
     return gfetch('https://www.googleapis.com/drive/v3/files?q=' + encodeURIComponent("name contains 'AgentOS-Agent:'") + '&fields=files(id,name)', {
       headers: { 'Authorization': 'Bearer ' + token }
     }).then(function(d) {
@@ -616,7 +616,7 @@ chrome.runtime.onMessage.addListener(function(msg, sender, sendResponse) {
 
   // Doc operations
   if (msg.type === 'saveNote') {
-    getToken(true).then(function(t) { return appendToDoc(t, state.docId, msg.text); })
+    getToken(false).then(function(t) { return appendToDoc(t, state.docId, msg.text); })
     .then(function() { sendResponse({ success: true }); })
     .catch(function(e) { sendResponse({ error: e.message }); });
     return true;
@@ -624,21 +624,21 @@ chrome.runtime.onMessage.addListener(function(msg, sender, sendResponse) {
 
   // Sheet operations
   if (msg.type === 'sheetWrite') {
-    getToken(true).then(function(t) { return writeSheet(t, state.sheetId, msg.range, msg.values); })
+    getToken(false).then(function(t) { return writeSheet(t, state.sheetId, msg.range, msg.values); })
     .then(function(r) { sendResponse({ success: true, result: r }); })
     .catch(function(e) { sendResponse({ error: e.message }); });
     return true;
   }
 
   if (msg.type === 'sheetRead') {
-    getToken(true).then(function(t) { return readSheet(t, state.sheetId, msg.range); })
+    getToken(false).then(function(t) { return readSheet(t, state.sheetId, msg.range); })
     .then(function(r) { sendResponse({ success: true, data: r }); })
     .catch(function(e) { sendResponse({ error: e.message }); });
     return true;
   }
 
   if (msg.type === 'sheetAppend') {
-    getToken(true).then(function(t) { return appendSheet(t, state.sheetId, msg.range, msg.values); })
+    getToken(false).then(function(t) { return appendSheet(t, state.sheetId, msg.range, msg.values); })
     .then(function(r) { sendResponse({ success: true, result: r }); })
     .catch(function(e) { sendResponse({ error: e.message }); });
     return true;
@@ -646,14 +646,14 @@ chrome.runtime.onMessage.addListener(function(msg, sender, sendResponse) {
 
   // Task operations
   if (msg.type === 'addTask') {
-    getToken(true).then(function(t) {
+    getToken(false).then(function(t) {
       return appendSheet(t, state.sheetId, 'Tasks!A:E', [[msg.task, 'pending', msg.priority || 'normal', new Date().toISOString(), '']]);
     }).then(function() { sendResponse({ success: true }); }).catch(function(e) { sendResponse({ error: e.message }); });
     return true;
   }
 
   if (msg.type === 'taskDone') {
-    getToken(true).then(function(t) {
+    getToken(false).then(function(t) {
       return appendToDoc(t, state.docId, '\n- DONE: ' + msg.task + ' (' + new Date().toISOString() + ')');
     }).then(function() { sendResponse({ success: true }); }).catch(function(e) { sendResponse({ error: e.message }); });
     return true;
@@ -661,31 +661,31 @@ chrome.runtime.onMessage.addListener(function(msg, sender, sendResponse) {
 
   // Skills
   if (msg.type === 'skillCreate') {
-    getToken(true).then(function(t) { return createSkillDoc(t, msg.name, msg.code); })
+    getToken(false).then(function(t) { return createSkillDoc(t, msg.name, msg.code); })
     .then(function(id) { sendResponse({ success: true, docId: id }); })
     .catch(function(e) { sendResponse({ error: e.message }); });
     return true;
   }
   if (msg.type === 'skillSearch') {
-    getToken(true).then(function(t) { return searchSkills(t, msg.query); })
+    getToken(false).then(function(t) { return searchSkills(t, msg.query); })
     .then(function(r) { sendResponse({ success: true, results: r }); })
     .catch(function(e) { sendResponse({ error: e.message }); });
     return true;
   }
   if (msg.type === 'skillRecall') {
-    getToken(true).then(function(t) { return recallSkill(t, msg.name); })
+    getToken(false).then(function(t) { return recallSkill(t, msg.name); })
     .then(function(r) { sendResponse({ success: true, code: r }); })
     .catch(function(e) { sendResponse({ error: e.message }); });
     return true;
   }
   if (msg.type === 'skillImprove') {
-    getToken(true).then(function(t) { return improveSkill(t, msg.name, msg.code); })
+    getToken(false).then(function(t) { return improveSkill(t, msg.name, msg.code); })
     .then(function() { sendResponse({ success: true }); })
     .catch(function(e) { sendResponse({ error: e.message }); });
     return true;
   }
   if (msg.type === 'skillList') {
-    getToken(true).then(function(t) { return listSkills(t); })
+    getToken(false).then(function(t) { return listSkills(t); })
     .then(function(r) { sendResponse({ success: true, skills: r }); })
     .catch(function(e) { sendResponse({ error: e.message }); });
     return true;
@@ -693,19 +693,19 @@ chrome.runtime.onMessage.addListener(function(msg, sender, sendResponse) {
 
   // Scheduler
   if (msg.type === 'scheduleTask') {
-    getToken(true).then(function(t) { return createCalendarEvent(t, msg.title, msg.time, msg.recurrence); })
+    getToken(false).then(function(t) { return createCalendarEvent(t, msg.title, msg.time, msg.recurrence); })
     .then(function(r) { sendResponse({ success: true, result: r }); })
     .catch(function(e) { sendResponse({ error: e.message }); });
     return true;
   }
   if (msg.type === 'scheduleList') {
-    getToken(true).then(function(t) { return listScheduledTasks(t); })
+    getToken(false).then(function(t) { return listScheduledTasks(t); })
     .then(function(r) { sendResponse({ success: true, tasks: r }); })
     .catch(function(e) { sendResponse({ error: e.message }); });
     return true;
   }
   if (msg.type === 'scheduleCancel') {
-    getToken(true).then(function(t) { return cancelScheduledTask(t, msg.query); })
+    getToken(false).then(function(t) { return cancelScheduledTask(t, msg.query); })
     .then(function(r) { sendResponse({ success: true, result: r }); })
     .catch(function(e) { sendResponse({ error: e.message }); });
     return true;
@@ -713,13 +713,13 @@ chrome.runtime.onMessage.addListener(function(msg, sender, sendResponse) {
 
   // Email
   if (msg.type === 'emailNotify' || msg.type === 'emailReport') {
-    getToken(true).then(function(t) { return sendEmail(t, msg.to, msg.subject, msg.body); })
+    getToken(false).then(function(t) { return sendEmail(t, msg.to, msg.subject, msg.body); })
     .then(function(r) { sendResponse({ success: true, result: r }); })
     .catch(function(e) { sendResponse({ error: e.message }); });
     return true;
   }
   if (msg.type === 'emailCheck') {
-    getToken(true).then(function(t) { return checkInbox(t); })
+    getToken(false).then(function(t) { return checkInbox(t); })
     .then(function(r) { sendResponse({ success: true, inbox: r }); })
     .catch(function(e) { sendResponse({ error: e.message }); });
     return true;
@@ -727,7 +727,7 @@ chrome.runtime.onMessage.addListener(function(msg, sender, sendResponse) {
 
   // Multi-agent
   if (msg.type === 'spawnAgent') {
-    getToken(true).then(function(t) { return spawnSubAgent(t, msg.name, msg.soul); })
+    getToken(false).then(function(t) { return spawnSubAgent(t, msg.name, msg.soul); })
     .then(function(r) { sendResponse({ success: true, result: r }); })
     .catch(function(e) { sendResponse({ error: e.message }); });
     return true;
