@@ -160,40 +160,40 @@
     p += '6. If a task is ambiguous, pick the most reasonable interpretation and act. If truly blocked, emit [SAVE_NOTE: blocked because X] and [ADD_TASK: clarify X with user] then continue with the next task.' + nl;
     p += '7. Wait for [RESULT:...] lines before assuming an action succeeded. They appear automatically.' + nl + nl;
 
-    p += '=== YOUR TOOL TAGS (exact syntax) ===' + nl;
+        p += '=== YOUR TOOL TAGS (EXACT syntax - pipes | are literal separators) ===' + nl;
     p += 'Memory / Notes / Tasks:' + nl;
     p += '  [SAVE_NOTE: short factual note to remember]' + nl;
     p += '  [ADD_TASK: description of work to do later]' + nl;
     p += '  [TASK_DONE: id-or-description-of-finished-task]' + nl;
     p += '  [SKIP: id-or-description | reason]' + nl + nl;
-    p += 'Google Sheets:' + nl;
-    p += '  [SHEET_WRITE: A1 | value]' + nl;
-    p += '  [SHEET_READ: A1:C10]' + nl;
-    p += '  [SHEET_APPEND: col1,col2,col3]' + nl + nl;
+    p += 'Google Sheets (use pipes to separate fields):' + nl;
+    p += '  [SHEET_WRITE: SheetName | A1 | value]       <- 3 fields' + nl;
+    p += '  [SHEET_READ: SheetName | A1:C10]            <- 2 fields' + nl;
+    p += '  [SHEET_APPEND: SheetName | value]           <- 2 fields' + nl + nl;
     p += 'Browser control:' + nl;
-    p += '  [TAB_OPEN: https://url]' + nl;
+    p += '  [TAB_OPEN: https://url]                     (URL must start with http/https)' + nl;
     p += '  [TAB_SCRAPE: https://url]' + nl;
     p += '  [TAB_CLICK: css-selector]' + nl;
-    p += '  [TAB_TYPE: css-selector | text]' + nl;
-    p += '  [TAB_WAIT: css-selector]' + nl;
+    p += '  [TAB_TYPE: css-selector | text to type]' + nl;
+    p += '  [TAB_WAIT: 3000]                            (milliseconds, digits only)' + nl;
     p += '  [TAB_CLOSE: url-or-tab-id]' + nl;
-    p += '  [BROWSE: natural language search or fetch request]' + nl + nl;
+    p += '  [BROWSE: google search query]               (opens Google search with this query)' + nl + nl;
     p += 'Skills (reusable procedures):' + nl;
     p += '  [SKILL_CREATE: name | steps]' + nl;
     p += '  [SKILL_SEARCH: keyword]' + nl;
     p += '  [SKILL_RECALL: name]' + nl;
     p += '  [SKILL_IMPROVE: name | new-steps]' + nl + nl;
     p += 'Scheduling:' + nl;
-    p += '  [SCHEDULE_TASK: ISO-time | description]' + nl;
+    p += '  [SCHEDULE_TASK: title | ISO-time | recurrence]   <- 3 fields (recurrence can be "none")' + nl;
     p += '  [SCHEDULE_CANCEL: id]' + nl + nl;
-    p += 'Sub-agents:' + nl;
+    p += 'Sub-agents (may fail without fresh OAuth - avoid in long autonomous loops):' + nl;
     p += '  [SPAWN_AGENT: role | goal]' + nl;
     p += '  [ASSIGN_TASK: agent-id | task]' + nl;
     p += '  [AGENT_MSG: agent-id | message]' + nl;
     p += '  [AGENT_DONE: agent-id | summary]' + nl + nl;
-    p += 'Email:' + nl;
-    p += '  [EMAIL_NOTIFY: subject | body]' + nl;
-    p += '  [EMAIL_REPORT: to | subject | body]' + nl + nl;
+    p += 'Email (may fail without fresh OAuth - avoid in long autonomous loops):' + nl;
+    p += '  [EMAIL_NOTIFY: to | subject | body]         <- 3 fields' + nl;
+    p += '  [EMAIL_REPORT: subject | body]              <- 2 fields (sends to yourself)' + nl + nl;
     p += 'End of session:' + nl;
     p += '  [SESSION_COMPLETE: summary of what was accomplished]' + nl + nl;
 
@@ -364,7 +364,7 @@
 
     // -- BROWSER TAGS --
     handleTag(text, /\[TAB_OPEN:\s*(.+?)\]/g, function(m) {
-      var u = m[1].trim();
+      var u = m[1].trim().replace(/\s+/g, '');
       if (!/^https?:\/\//i.test(u)) { injectResult('tabOpen',{error:'URL blocked (must be http/https): '+u}); return; }
       send('tabOpen', { url: u });
     });
